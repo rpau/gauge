@@ -263,7 +263,7 @@ func StartRunnerAndMakeConnection(manifest *manifest.Manifest, reporter reporter
 	if err != nil {
 		port = 0
 	}
-	gaugeConnectionHandler, connHandlerErr := conn.NewGaugeConnectionHandler(port, nil)
+	gaugeConnectionHandler, connHandlerErr := conn.NewGaugeConnectionHandler(port, 0, nil)
 	if connHandlerErr != nil {
 		return nil, connHandlerErr
 	}

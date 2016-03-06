@@ -26,36 +26,47 @@ import (
 	"github.com/getgauge/common"
 	"github.com/getgauge/gauge/api/infoGatherer"
 	"github.com/getgauge/gauge/conn"
+	"github.com/getgauge/gauge/gauge_messages"
 	"github.com/getgauge/gauge/logger"
 	"github.com/getgauge/gauge/manifest"
 	"github.com/getgauge/gauge/reporter"
 	"github.com/getgauge/gauge/runner"
+	"github.com/getgauge/gauge/stream"
 	"github.com/getgauge/gauge/util"
 )
 
 // StartAPI calls StartAPIService and returns the channels
 func StartAPI() *runner.StartChannels {
 	startChan := &runner.StartChannels{RunnerChan: make(chan *runner.TestRunner), ErrorChan: make(chan error), KillChan: make(chan bool)}
-	go StartAPIService(0, startChan)
+	go StartAPIService(0, 0, startChan)
 	return startChan
 }
 
 // StartAPIService starts the Gauge API service
-func StartAPIService(port int, startChannels *runner.StartChannels) {
+func StartAPIService(port, v2port int, startChannels *runner.StartChannels) {
 	specInfoGatherer := new(infoGatherer.SpecInfoGatherer)
 	apiHandler := &gaugeAPIMessageHandler{specInfoGatherer: specInfoGatherer}
-	gaugeConnectionHandler, err := conn.NewGaugeConnectionHandler(port, apiHandler)
+	gch, err := conn.NewGaugeConnectionHandler(port, v2port, apiHandler)
 	if err != nil {
 		startChannels.ErrorChan <- fmt.Errorf("Connection error. %s", err.Error())
 		return
 	}
-	if port == 0 {
-		if err := common.SetEnvVariable(common.APIPortEnvVariableName, strconv.Itoa(gaugeConnectionHandler.ConnectionPortNumber())); err != nil {
-			startChannels.ErrorChan <- fmt.Errorf("Failed to set Env variable %s. %s", common.APIPortEnvVariableName, err.Error())
-			return
+	setAPIPort := func(value int, envVariable string) {
+		if port == 0 {
+			if err := common.SetEnvVariable(envVariable, strconv.Itoa(value)); err != nil {
+				startChannels.ErrorChan <- fmt.Errorf("Failed to set Env variable %s. %s", envVariable, err.Error())
+			}
 		}
+		return
 	}
-	go gaugeConnectionHandler.HandleMultipleConnections()
+
+	setAPIPort(gch.ConnectionPortNumber(), common.APIPortEnvVariableName)
+	setAPIPort(gch.APIV2PortNumber(), common.APIV2PortEnvVariableName)
+
+	go gch.HandleMultipleConnections()
+
+	gauge_messages.RegisterExecutionServer(gch.GRPCServer, &stream.ExecutionStream{})
+	go gch.ServeGRPCServer()
 
 	runner, err := connectToRunner(startChannels.KillChan)
 	if err != nil {
@@ -80,9 +91,9 @@ func connectToRunner(killChannel chan bool) (*runner.TestRunner, error) {
 	return runner, nil
 }
 
-func runAPIServiceIndefinitely(port int) {
+func runAPIServiceIndefinitely(port, v2port int) {
 	startChan := &runner.StartChannels{RunnerChan: make(chan *runner.TestRunner), ErrorChan: make(chan error), KillChan: make(chan bool)}
-	go StartAPIService(port, startChan)
+	go StartAPIService(port, v2port, startChan)
 	go checkParentIsAlive(startChan)
 
 	for {
@@ -108,20 +119,24 @@ func checkParentIsAlive(startChannels *runner.StartChannels) {
 }
 
 // RunInBackground runs Gauge in daemonized mode on the given apiPort
-func RunInBackground(apiPort string) {
+func RunInBackground(apiPort, apiV2Port string) {
+	runAPIServiceIndefinitely(getValidAPIPort(apiPort, common.APIPortEnvVariableName), getValidAPIPort(apiV2Port, common.APIV2PortEnvVariableName))
+}
+
+func getValidAPIPort(p, e string) int {
 	var port int
 	var err error
-	if apiPort != "" {
-		port, err = strconv.Atoi(apiPort)
+	if p != "" {
+		port, err = strconv.Atoi(p)
 		if err != nil {
-			logger.Fatalf(fmt.Sprintf("Invalid port number: %s", apiPort))
+			logger.Fatalf(fmt.Sprintf("Invalid port number: %s", p))
 		}
-		os.Setenv(common.APIPortEnvVariableName, apiPort)
+		os.Setenv(e, p)
 	} else {
-		port, err = conn.GetPortFromEnvironmentVariable(common.APIPortEnvVariableName)
+		port, err = conn.GetPortFromEnvironmentVariable(e)
 		if err != nil {
 			logger.Fatalf(fmt.Sprintf("Failed to start API Service. %s \n", err.Error()))
 		}
 	}
-	runAPIServiceIndefinitely(port)
+	return port
 }

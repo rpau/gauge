@@ -44,6 +44,7 @@ type simpleExecution struct {
 	consoleReporter      reporter.Reporter
 	errMaps              *validationErrMaps
 	startTime            time.Time
+	streamChannel        chan gauge_messages.ExecutionResponse
 }
 
 func newSimpleExecution(executionInfo *executionInfo) *simpleExecution {
@@ -98,9 +99,10 @@ func (e *simpleExecution) killPlugins() {
 	e.pluginHandler.GracefullyKillPlugins()
 }
 
-func (e *simpleExecution) start() {
+func (e *simpleExecution) start(streamChannel chan gauge_messages.ExecutionResponse) {
 	e.pluginHandler = plugin.StartPlugins(e.manifest)
 	e.startTime = time.Now()
+	e.streamChannel = streamChannel
 }
 
 func (e *simpleExecution) run() *result.SuiteResult {
@@ -157,7 +159,7 @@ func (e *simpleExecution) stopAllPlugins() {
 }
 
 func (e *simpleExecution) executeSpec(specificationToExecute *gauge.Specification) {
-	executor := newSpecExecutor(specificationToExecute, e.runner, e.pluginHandler, getDataTableRows(specificationToExecute.DataTable.Table.GetRowCount()), e.consoleReporter, e.errMaps)
+	executor := newSpecExecutor(specificationToExecute, e.runner, e.pluginHandler, getDataTableRows(specificationToExecute.DataTable.Table.GetRowCount()), e.consoleReporter, e.errMaps, e.streamChannel)
 	protoSpecResult := executor.execute()
 	e.suiteResult.AddSpecResult(protoSpecResult)
 }

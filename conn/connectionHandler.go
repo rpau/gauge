@@ -23,6 +23,9 @@ import (
 	"net"
 	"time"
 
+	"google.golang.org/grpc"
+
+	"github.com/getgauge/gauge/logger"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -34,24 +37,37 @@ type dataHandlerFn func(*GaugeConnectionHandler, []byte)
 
 type GaugeConnectionHandler struct {
 	tcpListener    *net.TCPListener
+	V2PortListener *net.TCPListener
 	messageHandler messageHandler
+	GRPCServer     *grpc.Server
 }
 
-func NewGaugeConnectionHandler(port int, messageHandler messageHandler) (*GaugeConnectionHandler, error) {
+func NewGaugeConnectionHandler(port, v2port int, messageHandler messageHandler) (*GaugeConnectionHandler, error) {
 	// port = 0 means GO will find a unused port
+	s := grpc.NewServer()
 	listener, err := net.ListenTCP("tcp", &net.TCPAddr{Port: port})
 	if err != nil {
 		return nil, err
 	}
-
-	return &GaugeConnectionHandler{tcpListener: listener, messageHandler: messageHandler}, nil
+	v2portlistener, err := net.ListenTCP("tcp", &net.TCPAddr{Port: v2port})
+	if err != nil {
+		return nil, err
+	}
+	return &GaugeConnectionHandler{tcpListener: listener, messageHandler: messageHandler, GRPCServer: s, V2PortListener: v2portlistener}, nil
 }
 
-func (connectionHandler *GaugeConnectionHandler) AcceptConnection(connectionTimeOut time.Duration, errChannel chan error) (net.Conn, error) {
+func (h *GaugeConnectionHandler) ServeGRPCServer() {
+	err := h.GRPCServer.Serve(h.V2PortListener)
+	if err != nil {
+		logger.Fatalf("Failed to serve GRPC Server. %s", err.Error())
+	}
+}
+
+func (h *GaugeConnectionHandler) AcceptConnection(connectionTimeOut time.Duration, errChannel chan error) (net.Conn, error) {
 	connectionChannel := make(chan net.Conn)
 
 	go func() {
-		connection, err := connectionHandler.tcpListener.Accept()
+		connection, err := h.tcpListener.Accept()
 		if err != nil {
 			errChannel <- err
 		}
@@ -64,21 +80,21 @@ func (connectionHandler *GaugeConnectionHandler) AcceptConnection(connectionTime
 	case err := <-errChannel:
 		return nil, err
 	case conn := <-connectionChannel:
-		if connectionHandler.messageHandler != nil {
-			go connectionHandler.handleConnectionMessages(conn)
+		if h.messageHandler != nil {
+			go h.handleConnectionMessages(conn)
 		}
 		return conn, nil
 	case <-time.After(connectionTimeOut):
-		return nil, fmt.Errorf("Timed out connecting to %v", connectionHandler.tcpListener.Addr())
+		return nil, fmt.Errorf("Timed out connecting to %v", h.tcpListener.Addr())
 	}
 }
 
-func (connectionHandler *GaugeConnectionHandler) acceptConnectionWithoutTimeout() (net.Conn, error) {
+func (h *GaugeConnectionHandler) acceptConnectionWithoutTimeout() (net.Conn, error) {
 	errChannel := make(chan error)
 	connectionChannel := make(chan net.Conn)
 
 	go func() {
-		connection, err := connectionHandler.tcpListener.Accept()
+		connection, err := h.tcpListener.Accept()
 		if err != nil {
 			errChannel <- err
 		}
@@ -91,37 +107,36 @@ func (connectionHandler *GaugeConnectionHandler) acceptConnectionWithoutTimeout(
 	case err := <-errChannel:
 		return nil, err
 	case conn := <-connectionChannel:
-		if connectionHandler.messageHandler != nil {
-			go connectionHandler.handleConnectionMessages(conn)
+		if h.messageHandler != nil {
+			go h.handleConnectionMessages(conn)
 		}
 		return conn, nil
 	}
 }
 
-func (connectionHandler *GaugeConnectionHandler) handleConnectionMessages(conn net.Conn) {
+func (h *GaugeConnectionHandler) handleConnectionMessages(conn net.Conn) {
 	buffer := new(bytes.Buffer)
 	data := make([]byte, 8192)
 	for {
 		n, err := conn.Read(data)
 		if err != nil {
 			conn.Close()
-			//TODO: Move to file
-			//			logger.Log.Println(fmt.Sprintf("Closing connection [%s] cause: %s", connectionHandler.conn.RemoteAddr(), err.Error()))
+			logger.APILog.Info("Closing connection [%s] cause: %s", h.ConnectionPortNumber(), err.Error())
 			return
 		}
 
 		buffer.Write(data[0:n])
-		connectionHandler.processMessage(buffer, conn)
+		h.processMessage(buffer, conn)
 	}
 }
 
-func (connectionHandler *GaugeConnectionHandler) processMessage(buffer *bytes.Buffer, conn net.Conn) {
+func (h *GaugeConnectionHandler) processMessage(buffer *bytes.Buffer, conn net.Conn) {
 	for {
 		messageLength, bytesRead := proto.DecodeVarint(buffer.Bytes())
 		if messageLength > 0 && messageLength < uint64(buffer.Len()) {
 			messageBoundary := int(messageLength) + bytesRead
 			receivedBytes := buffer.Bytes()[bytesRead : messageLength+uint64(bytesRead)]
-			connectionHandler.messageHandler.MessageBytesReceived(receivedBytes, conn)
+			h.messageHandler.MessageBytesReceived(receivedBytes, conn)
 			buffer.Next(messageBoundary)
 			if buffer.Len() == 0 {
 				return
@@ -133,16 +148,22 @@ func (connectionHandler *GaugeConnectionHandler) processMessage(buffer *bytes.Bu
 }
 
 // HandleMultipleConnections accepts multiple connections and Handler responds to incoming messages
-func (connectionHandler *GaugeConnectionHandler) HandleMultipleConnections() {
+func (h *GaugeConnectionHandler) HandleMultipleConnections() {
 	for {
-		connectionHandler.acceptConnectionWithoutTimeout()
+		h.acceptConnectionWithoutTimeout()
 	}
-
 }
 
-func (connectionHandler *GaugeConnectionHandler) ConnectionPortNumber() int {
-	if connectionHandler.tcpListener != nil {
-		return connectionHandler.tcpListener.Addr().(*net.TCPAddr).Port
+func (h *GaugeConnectionHandler) ConnectionPortNumber() int {
+	if h.tcpListener != nil {
+		return h.tcpListener.Addr().(*net.TCPAddr).Port
+	}
+	return 0
+}
+
+func (h *GaugeConnectionHandler) APIV2PortNumber() int {
+	if h.V2PortListener != nil {
+		return h.V2PortListener.Addr().(*net.TCPAddr).Port
 	}
 	return 0
 }

@@ -62,6 +62,7 @@ var specFilesToFormat = flag.String([]string{"-format"}, "", "Formats the specif
 var executeTags = flag.String([]string{"-tags"}, "", "Executes the specs and scenarios tagged with given tags. Eg: gauge --tags tag1,tag2 specs")
 var tableRows = flag.String([]string{"-table-rows"}, "", "Executes the specs and scenarios only for the selected rows. Eg: gauge --table-rows \"1-3\" specs/hello.spec")
 var apiPort = flag.String([]string{"-api-port"}, "", "Specifies the api port to be used. Eg: gauge --daemonize --api-port 7777")
+var apiV2Port = flag.String([]string{"-api-v2port"}, "", "Specifies the v2 api port to be used. Eg: gauge --daemonize --api-v2port 7777")
 var refactorSteps = flag.String([]string{"-refactor"}, "", "Refactor steps")
 var parallel = flag.Bool([]string{"-parallel", "p"}, false, "Execute specs in parallel")
 var numberOfExecutionStreams = flag.Int([]string{"n"}, util.NumberOfCores(), "Specify number of parallel execution streams")
@@ -126,7 +127,7 @@ func main() {
 			}
 			refactor.RefactorSteps(*refactorSteps, flag.Args()[0], startChan)
 		} else if *daemonize {
-			api.RunInBackground(*apiPort)
+			api.RunInBackground(*apiPort, *apiV2Port)
 		} else if *specFilesToFormat != "" {
 			formatter.FormatSpecFilesIn(*specFilesToFormat)
 		} else if *validate {

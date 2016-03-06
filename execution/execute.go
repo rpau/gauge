@@ -29,6 +29,7 @@ import (
 	"github.com/getgauge/gauge/execution/result"
 	"github.com/getgauge/gauge/filter"
 	"github.com/getgauge/gauge/gauge"
+	"github.com/getgauge/gauge/gauge_messages"
 	"github.com/getgauge/gauge/logger"
 	"github.com/getgauge/gauge/manifest"
 	"github.com/getgauge/gauge/parser"
@@ -43,7 +44,7 @@ var InParallel bool
 var checkUpdatesDuringExecution = false
 
 type execution interface {
-	start()
+	start(streamChannel chan gauge_messages.ExecutionResponse)
 	run() *result.SuiteResult
 	finish()
 }
@@ -107,7 +108,13 @@ func ExecuteSpecs(args []string) int {
 	errMap := validateSpecs(manifest, specsToExecute, runner, conceptsDictionary)
 	executionInfo := newExecutionInfo(manifest, &specStore{specs: specsToExecute}, runner, nil, reporter.Current(), errMap, InParallel)
 	execution := newExecution(executionInfo)
-	execution.start()
+	streamChannel := make(chan gauge_messages.ExecutionResponse, 0)
+	go func() {
+		for result := range streamChannel {
+			logger.Info(result.GetID() + result.GetType().String() + result.GetStatus().String())
+		}
+	}()
+	execution.start(streamChannel)
 	result := execution.run()
 	execution.finish()
 	exitCode := printExecutionStatus(result, errMap)
@@ -149,7 +156,7 @@ func newExecution(executionInfo *executionInfo) execution {
 
 func startAPI() *runner.TestRunner {
 	startChan := &runner.StartChannels{RunnerChan: make(chan *runner.TestRunner), ErrorChan: make(chan error), KillChan: make(chan bool)}
-	go api.StartAPIService(0, startChan)
+	go api.StartAPIService(0, 0, startChan)
 	select {
 	case runner := <-startChan.RunnerChan:
 		return runner

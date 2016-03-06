@@ -52,6 +52,7 @@ type parallelExecution struct {
 	consoleReporter          reporter.Reporter
 	errMaps                  *validationErrMaps
 	startTime                time.Time
+	streamChannel            chan gauge_messages.ExecutionResponse
 }
 
 func newParallelExecution(executionInfo *executionInfo) *parallelExecution {
@@ -87,9 +88,10 @@ func (e *parallelExecution) getNumberOfStreams() int {
 	return nStreams
 }
 
-func (e *parallelExecution) start() {
+func (e *parallelExecution) start(streamChannel chan gauge_messages.ExecutionResponse) {
 	e.pluginHandler = plugin.StartPlugins(e.manifest)
 	e.startTime = time.Now()
+	e.streamChannel = streamChannel
 }
 
 func (e *parallelExecution) run() *result.SuiteResult {
@@ -158,7 +160,7 @@ func (e *parallelExecution) startStream(specStore *specStore, reporter reporter.
 func (e *parallelExecution) startSpecsExecutionWithRunner(specStore *specStore, suiteResultsChan chan *result.SuiteResult, runner *runner.TestRunner, reporter reporter.Reporter) {
 	executionInfo := newExecutionInfo(e.manifest, specStore, runner, e.pluginHandler, reporter, e.errMaps, false)
 	simpleExecution := newExecution(executionInfo)
-	simpleExecution.start()
+	simpleExecution.start(e.streamChannel)
 	result := simpleExecution.run()
 	runner.Kill()
 	suiteResultsChan <- result

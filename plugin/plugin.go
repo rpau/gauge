@@ -248,7 +248,7 @@ func startPluginsForExecution(manifest *manifest.Manifest) (*Handler, []string) 
 			continue
 		}
 		if isExecutionScopePlugin(pd) {
-			gaugeConnectionHandler, err := conn.NewGaugeConnectionHandler(0, nil)
+			gaugeConnectionHandler, err := conn.NewGaugeConnectionHandler(0, 0, nil)
 			if err != nil {
 				warnings = append(warnings, err.Error())
 				continue

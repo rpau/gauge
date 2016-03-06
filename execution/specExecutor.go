@@ -45,6 +45,7 @@ type specExecutor struct {
 	currentTableRow      int
 	consoleReporter      reporter.Reporter
 	errMap               *validationErrMaps
+	streamChannel        chan gauge_messages.ExecutionResponse
 }
 
 type indexRange struct {
@@ -52,19 +53,16 @@ type indexRange struct {
 	end   int
 }
 
-func newSpecExecutor(specToExecute *gauge.Specification, runner *runner.TestRunner, pluginHandler *plugin.Handler, tableRows indexRange, reporter reporter.Reporter, errMaps *validationErrMaps) *specExecutor {
-	specExecutor := new(specExecutor)
-	specExecutor.initialize(specToExecute, runner, pluginHandler, tableRows, reporter, errMaps)
-	return specExecutor
-}
-
-func (e *specExecutor) initialize(specificationToExecute *gauge.Specification, runner *runner.TestRunner, pluginHandler *plugin.Handler, tableRows indexRange, consoleReporter reporter.Reporter, errMap *validationErrMaps) {
-	e.specification = specificationToExecute
+func newSpecExecutor(specToExecute *gauge.Specification, runner *runner.TestRunner, pluginHandler *plugin.Handler, tableRows indexRange, reporter reporter.Reporter, errMaps *validationErrMaps, streamChannel chan gauge_messages.ExecutionResponse) *specExecutor {
+	e := new(specExecutor)
+	e.specification = specToExecute
 	e.runner = runner
 	e.pluginHandler = pluginHandler
 	e.dataTableIndex = tableRows
-	e.consoleReporter = consoleReporter
-	e.errMap = errMap
+	e.consoleReporter = reporter
+	e.errMap = errMaps
+	e.streamChannel = streamChannel
+	return e
 }
 
 func (e *specExecutor) executeBeforeSpecHook() *gauge_messages.ProtoExecutionResult {
@@ -211,10 +209,42 @@ func (e *specExecutor) executeAfterScenarioHook(scenarioResult *result.ScenarioR
 
 func (e *specExecutor) executeScenarios() []*result.ScenarioResult {
 	var scenarioResults []*result.ScenarioResult
-	for _, scenario := range e.specification.Scenarios {
-		scenarioResults = append(scenarioResults, e.executeScenario(scenario))
+	for i, scenario := range e.specification.Scenarios {
+		sceResult := e.executeScenario(scenario)
+		e.streamChannel <- getExecutionResponse(gauge_messages.ExecutionResponse_ScenarioResult.Enum(), getScenarioID(e.specification.FileName, i), sceResult)
+		scenarioResults = append(scenarioResults, sceResult)
 	}
 	return scenarioResults
+}
+
+func getScenarioID(spec string, scenarioIndex int) string {
+	return fmt.Sprintf("%s:%d", spec, scenarioIndex)
+}
+
+func getExecutionResponse(responseType *gauge_messages.ExecutionResponse_ExecutionResponseType, id string, scenarioResult *result.ScenarioResult) gauge_messages.ExecutionResponse {
+	// if failed
+	var failures []*gauge_messages.ExecutionResponse_ExecutionError
+	if f := scenarioResult.ProtoScenario.GetPreHookFailure(); f != nil {
+		failures = append(failures, &gauge_messages.ExecutionResponse_ExecutionError{StackTrace: f.StackTrace, ErrorMessage: f.ErrorMessage, ScreenShot: f.ScreenShot})
+	}
+	if f := scenarioResult.ProtoScenario.GetPostHookFailure(); f != nil {
+		failures = append(failures, &gauge_messages.ExecutionResponse_ExecutionError{StackTrace: f.StackTrace, ErrorMessage: f.ErrorMessage, ScreenShot: f.ScreenShot})
+	}
+
+	// step errors
+	getExecutionStatus := func() *gauge_messages.ExecutionResponse_Status {
+		if scenarioResult.ProtoScenario.GetFailed() {
+			return gauge_messages.ExecutionResponse_FAILED.Enum()
+		}
+		return gauge_messages.ExecutionResponse_PASSED.Enum()
+	}
+	return gauge_messages.ExecutionResponse{Type: responseType,
+		ID:            proto.String(id),
+		Status:        getExecutionStatus(),
+		Error:         failures,
+		ExecutionTime: scenarioResult.ProtoScenario.ExecutionTime,
+		// stdout
+	}
 }
 
 func (e *specExecutor) executeScenario(scenario *gauge.Scenario) *result.ScenarioResult {
