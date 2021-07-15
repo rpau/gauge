@@ -28,6 +28,7 @@ const (
 	GOOS              = "GOOS"
 	X86               = "386"
 	X86_64            = "amd64"
+	ARM64             = "arm64"
 	darwin            = "darwin"
 	linux             = "linux"
 	freebsd           = "freebsd"
@@ -92,7 +93,7 @@ func runTests(coverage bool) {
 		if *verbose {
 			runProcess("go", "test", "./...", "-v")
 		} else {
-			runProcess("go", "test",  "./...")
+			runProcess("go", "test", "./...")
 		}
 	}
 }
@@ -151,10 +152,11 @@ var certFile = flag.String("certFile", "", "Should be passed for signing the win
 // Each target name is the directory name
 var (
 	platformEnvs = []map[string]string{
-		map[string]string{GOARCH: X86, GOOS: darwin, CGO_ENABLED: "0"},
+		map[string]string{GOARCH: ARM64, GOOS: darwin, CGO_ENABLED: "0"},
 		map[string]string{GOARCH: X86_64, GOOS: darwin, CGO_ENABLED: "0"},
 		map[string]string{GOARCH: X86, GOOS: linux, CGO_ENABLED: "0"},
 		map[string]string{GOARCH: X86_64, GOOS: linux, CGO_ENABLED: "0"},
+		map[string]string{GOARCH: ARM64, GOOS: linux, CGO_ENABLED: "0"},
 		map[string]string{GOARCH: X86, GOOS: freebsd, CGO_ENABLED: "0"},
 		map[string]string{GOARCH: X86_64, GOOS: freebsd, CGO_ENABLED: "0"},
 		map[string]string{GOARCH: X86, GOOS: windows, CC: "i586-mingw32-gcc", CGO_ENABLED: "1"},
@@ -294,14 +296,14 @@ func signExecutable(exeFilePath string, certFilePath string) {
 }
 
 func createDarwinPackage() {
-	distroDir := filepath.Join(deploy, gauge)
+	distroDir := filepath.Join(deploy, packageName())
 	copyGaugeBinaries(distroDir)
 	if id := os.Getenv("OS_SIGNING_IDENTITY"); id == "" {
-		log.Printf("No singning identity found . Executable won't be signed.")
+		log.Printf("No signing identity found . Executable won't be signed.")
 	} else {
 		runProcess("codesign", "-s", id, "--force", "--deep", filepath.Join(distroDir, gauge))
 	}
-	createZipFromUtil(deploy, gauge, packageName())
+	createZipFromUtil(deploy, packageName(), packageName())
 	if err := os.RemoveAll(distroDir); err != nil {
 		log.Printf("failed to remove %s", distroDir)
 	}
@@ -439,6 +441,10 @@ func getPackageArchSuffix() string {
 
 	if strings.HasSuffix(*binDir, "amd64") {
 		return "x86_64"
+	}
+
+	if arch := getGOARCH(); arch == "arm64" {
+		return "arm64"
 	}
 
 	if arch := getGOARCH(); arch == X86 {

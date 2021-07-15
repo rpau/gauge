@@ -33,6 +33,7 @@ const (
 	pluginJSON = "plugin.json"
 	jsonExt    = ".json"
 	x86        = "386"
+	arm64      = "arm64"
 )
 
 type installDescription struct {
@@ -49,8 +50,9 @@ type versionInstallDescription struct {
 }
 
 type downloadUrls struct {
-	X86 platformSpecificURL
-	X64 platformSpecificURL
+	X86   platformSpecificURL
+	X64   platformSpecificURL
+	ARM64 platformSpecificURL
 }
 
 type platformSpecificCommand struct {
@@ -120,6 +122,9 @@ type GaugePlugin struct {
 
 func getGoArch() string {
 	arch := runtime.GOARCH
+	if arch == arm64 {
+		return arm64
+	}
 	if arch == x86 {
 		return "x86"
 	}
@@ -134,15 +139,19 @@ func isPlatformIndependent(zipfile string) bool {
 	return !re.MatchString(zipfile)
 }
 
-func isOsOSCompatible(zipfile string) bool {
+func isOSCompatible(zipfile string) bool {
 	os := runtime.GOOS
 	arch := getGoArch()
+	if os == "darwin" && arch == "arm64" {
+		// darwin/arm64 can run darwin/x86_64 binaries under rosetta.
+		return strings.Contains(zipfile, "darwin.arm64") || strings.Contains(zipfile, "darwin.x86_64")
+	}
 	return strings.Contains(zipfile, fmt.Sprintf("%s.%s", os, arch))
 }
 
 // InstallPluginFromZipFile installs plugin from given zip file
 func InstallPluginFromZipFile(zipFile string, pluginName string) InstallResult {
-	if !isPlatformIndependent(zipFile) && !isOsOSCompatible(zipFile) {
+	if !isPlatformIndependent(zipFile) && !isOSCompatible(zipFile) {
 		err := fmt.Errorf("provided plugin is not compatible with OS %s %s", runtime.GOOS, runtime.GOARCH)
 		return installError(err)
 	}
@@ -368,10 +377,18 @@ func uninstallVersionOfPlugin(pluginDir, pluginName, uninstallVersion string) er
 
 func getDownloadLink(downloadUrls downloadUrls) (string, error) {
 	var platformLinks *platformSpecificURL
-	if strings.Contains(runtime.GOARCH, "64") {
-		platformLinks = &downloadUrls.X64
-	} else {
+	switch getGoArch() {
+	case arm64:
+		if downloadUrls.ARM64.Linux == "" {
+			logger.Info(true, "Download URL for 'arm64' architecture is not set for this plugin. Falling back to 'x86_64', but this may cause issues.")
+			platformLinks = &downloadUrls.X64
+		} else {
+			platformLinks = &downloadUrls.ARM64
+		}
+	case x86:
 		platformLinks = &downloadUrls.X86
+	default:
+		platformLinks = &downloadUrls.X64
 	}
 
 	var downloadLink string
@@ -576,7 +593,10 @@ func HandleUpdateResult(result InstallResult, pluginName string, exitIfFailure b
 
 func installPluginsFromManifest(manifest *manifest.Manifest, silent, languageOnly bool) {
 	pluginsMap := make(map[string]bool)
-	pluginsMap[manifest.Language] = true
+	if manifest.Language != "" {
+		pluginsMap[manifest.Language] = true
+	}
+
 	if !languageOnly {
 		for _, plugin := range manifest.Plugins {
 			pluginsMap[plugin] = false
