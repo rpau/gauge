@@ -193,7 +193,7 @@ func (e *parallelExecution) executeLegacyMultithreaded() {
 		ports = append(ports, strconv.Itoa(handler.ConnectionPortNumber()))
 		handlers = append(handlers, handler)
 	}
-	os.Setenv(gaugeAPIPortsEnv, strings.Join(ports, ","))
+	_ = os.Setenv(gaugeAPIPortsEnv, strings.Join(ports, ","))
 	writer := logger.NewLogWriter(e.manifest.Language, true, 0)
 	r, err := runner.StartLegacyRunner(e.manifest, "0", writer, make(chan bool), false)
 	if err != nil {
@@ -202,7 +202,7 @@ func (e *parallelExecution) executeLegacyMultithreaded() {
 	for i := 0; i < totalStreams; i++ {
 		connection, err := handlers[i].AcceptConnection(config.RunnerConnectionTimeout(), make(chan error))
 		if err != nil {
-			logger.Errorf(true, err.Error())
+			logger.Error(true, err.Error())
 		}
 		crapRunner := &runner.MultithreadedRunner{}
 		crapRunner.SetConnection(connection)
@@ -239,7 +239,7 @@ func (e *parallelExecution) executeEagerly() {
 
 func (e *parallelExecution) startRunner(s *gauge.SpecCollection, stream int) (runner.Runner, []error) {
 	if os.Getenv("GAUGE_CUSTOM_BUILD_PATH") == "" {
-		os.Setenv("GAUGE_CUSTOM_BUILD_PATH", path.Join(os.Getenv("GAUGE_PROJECT_ROOT"), "gauge_bin"))
+		_ = os.Setenv("GAUGE_CUSTOM_BUILD_PATH", path.Join(os.Getenv("GAUGE_PROJECT_ROOT"), "gauge_bin"))
 	}
 	runner, err := runner.Start(e.manifest, stream, make(chan bool), false)
 	if err != nil {
@@ -295,20 +295,30 @@ func (e *parallelExecution) finish() {
 
 func (e *parallelExecution) aggregateResults(suiteResults []*result.SuiteResult) {
 	r := result.NewSuiteResult(ExecuteTags, e.startTime)
-	for _, result := range suiteResults {
-		r.SpecsFailedCount += result.SpecsFailedCount
-		r.SpecResults = append(r.SpecResults, result.SpecResults...)
-		if result.IsFailed {
+	if e.suiteResult != nil {
+		r.PreHookMessages = e.suiteResult.PreHookMessages
+		r.PreHookScreenshotFiles = e.suiteResult.PreHookScreenshotFiles
+		r.PostHookMessages = e.suiteResult.PostHookMessages
+		r.PostHookScreenshotFiles = e.suiteResult.PostHookScreenshotFiles
+	}
+	for _, suiteResult := range suiteResults {
+		r.SpecsFailedCount += suiteResult.SpecsFailedCount
+		r.SpecResults = append(r.SpecResults, suiteResult.SpecResults...)
+		r.PreHookMessages = append(r.PreHookMessages, suiteResult.PreHookMessages...)
+		r.PreHookScreenshotFiles = append(r.PreHookScreenshotFiles, suiteResult.PreHookScreenshotFiles...)
+		r.PostHookMessages = append(r.PostHookMessages, suiteResult.PostHookMessages...)
+		r.PostHookScreenshotFiles = append(r.PostHookScreenshotFiles, suiteResult.PostHookScreenshotFiles...)
+		if suiteResult.IsFailed {
 			r.IsFailed = true
 		}
-		if result.PreSuite != nil {
-			r.PreSuite = result.PreSuite
+		if suiteResult.PreSuite != nil {
+			r.PreSuite = suiteResult.PreSuite
 		}
-		if result.PostSuite != nil {
-			r.PostSuite = result.PostSuite
+		if suiteResult.PostSuite != nil {
+			r.PostSuite = suiteResult.PostSuite
 		}
-		if result.UnhandledErrors != nil {
-			r.UnhandledErrors = append(r.UnhandledErrors, result.UnhandledErrors...)
+		if suiteResult.UnhandledErrors != nil {
+			r.UnhandledErrors = append(r.UnhandledErrors, suiteResult.UnhandledErrors...)
 		}
 	}
 	r.ExecutionTime = int64(time.Since(e.startTime) / 1e6)

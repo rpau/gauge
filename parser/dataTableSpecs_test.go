@@ -7,12 +7,12 @@
 package parser
 
 import (
+	"fmt"
 	"testing"
 
 	"encoding/json"
 	"reflect"
 
-	"github.com/getgauge/gauge/env"
 	"github.com/getgauge/gauge/gauge"
 )
 
@@ -140,10 +140,6 @@ func containsScenario(scenarios []*gauge.Scenario, items []gauge.Item) bool {
 }
 
 func TestGetSpecsForDataTableRowsShouldHaveEqualNumberOfScenearioInSpecsScenariosAndItemCollectionForScenarioDataTable(t *testing.T) {
-	old := env.AllowScenarioDatatable
-	env.AllowScenarioDatatable = func() bool {
-		return true
-	}
 	specs := []*gauge.Specification{
 		{
 			Heading: &gauge.Heading{},
@@ -163,8 +159,63 @@ func TestGetSpecsForDataTableRowsShouldHaveEqualNumberOfScenearioInSpecsScenario
 		scnJSON, _ := json.Marshal(actualSpecs[0].Scenarios)
 		t.Errorf("Failed: Wanted items:\n\n%s\n\nto contain all scenarios: \n\n%s", itemsJSON, scnJSON)
 	}
-	env.AllowScenarioDatatable = old
 }
+func TestGetSpecsForDataTableRowsWithMixedScenarios(t *testing.T) {
+	specs := []*gauge.Specification{
+		{
+			Heading: &gauge.Heading{},
+			Scenarios: []*gauge.Scenario{
+				{
+					Heading: &gauge.Heading{Value: "Scenario with spec params"},
+					Steps:   []*gauge.Step{{Args: []*gauge.StepArg{{Value: "specParam", ArgType: gauge.Dynamic, Name: "specParam"}}}},
+					Span:    &gauge.Span{Start: 5, End: 6},
+				},
+				{
+					Heading: &gauge.Heading{Value: "Scenario with own table"},
+					Steps:   []*gauge.Step{{Args: []*gauge.StepArg{{Value: "scenarioParam", ArgType: gauge.Dynamic, Name: "scenarioParam"}}}},
+					DataTable: gauge.DataTable{Table: gauge.NewTable([]string{"scenarioParam"}, [][]gauge.TableCell{
+						{{Value: "scnRow1", CellType: gauge.Static}, {Value: "scnRow2", CellType: gauge.Static}},
+					}, 0)},
+					Span: &gauge.Span{Start: 8, End: 12},
+				},
+			},
+			DataTable: gauge.DataTable{Table: gauge.NewTable([]string{"specParam"}, [][]gauge.TableCell{
+				{{Value: "row1", CellType: gauge.Static}, {Value: "row2", CellType: gauge.Static}},
+			}, 0)},
+		},
+	}
+
+	actualSpecs := GetSpecsForDataTableRows(specs, gauge.NewBuildErrors())
+
+	if len(actualSpecs) != 2 {
+		t.Errorf("Expected 2 specs (one per spec table row), got %d", len(actualSpecs))
+	}
+
+	firstSpec := actualSpecs[0]
+	if len(firstSpec.Scenarios) != 3 {
+		t.Errorf("First spec should have 3 scenarios (1 using spec param + 2 scenario table iterations), got %d", len(firstSpec.Scenarios))
+	}
+
+	secondSpec := actualSpecs[1]
+	if len(secondSpec.Scenarios) != 1 {
+		t.Errorf("Second spec should have 1 scenario (only the one using spec param), got %d", len(secondSpec.Scenarios))
+	}
+
+	scenarioWithOwnTableCount := 0
+	for _, scn := range firstSpec.Scenarios {
+		if scn.Heading.Value == "Scenario with own table" {
+			scenarioWithOwnTableCount++
+			if scn.SpecDataTableRow.IsInitialized() {
+				t.Errorf("Scenario with own table should not have spec table row when it doesn't use spec params")
+			}
+		}
+	}
+
+	if scenarioWithOwnTableCount != 2 {
+		t.Errorf("Expected 2 iterations of scenario with own table in first spec, got %d", scenarioWithOwnTableCount)
+	}
+}
+
 func TestGetTableWithOneRow(t *testing.T) {
 	table := gauge.NewTable([]string{"header"}, [][]gauge.TableCell{
 		{{Value: "row1", CellType: gauge.Static}, {Value: "row2", CellType: gauge.Static}},
@@ -201,7 +252,7 @@ func TestCreateSpecsForTableRows(t *testing.T) {
 			Heading: &gauge.Heading{},
 			Scenarios: []*gauge.Scenario{{Steps: []*gauge.Step{{Args: []*gauge.StepArg{{Value: "header", ArgType: gauge.Dynamic, Name: "header"}}}}, SpecDataTableRow: *gauge.NewTable([]string{"header"}, [][]gauge.TableCell{
 				{{Value: "row1", CellType: gauge.Static}},
-			}, 0), SpecDataTableRowIndex: 0}},
+			}, 0), SpecDataTableRowIndex: 0, ScenarioDataTableRowIndex: -1}},
 			DataTable: gauge.DataTable{Table: gauge.NewTable([]string{"header"}, [][]gauge.TableCell{
 				{{Value: "row1", CellType: gauge.Static}},
 			}, 0)},
@@ -212,7 +263,7 @@ func TestCreateSpecsForTableRows(t *testing.T) {
 				}, 0)},
 				&gauge.Scenario{Steps: []*gauge.Step{{Args: []*gauge.StepArg{{Value: "header", ArgType: gauge.Dynamic, Name: "header"}}}}, SpecDataTableRow: *gauge.NewTable([]string{"header"}, [][]gauge.TableCell{
 					{{Value: "row1", CellType: gauge.Static}},
-				}, 0), SpecDataTableRowIndex: 0},
+				}, 0), SpecDataTableRowIndex: 0, ScenarioDataTableRowIndex: -1},
 			},
 			TearDownSteps: []*gauge.Step{{Args: []*gauge.StepArg{{Value: "abc", ArgType: gauge.Static}}}},
 		},
@@ -220,7 +271,7 @@ func TestCreateSpecsForTableRows(t *testing.T) {
 			Heading: &gauge.Heading{},
 			Scenarios: []*gauge.Scenario{{Steps: []*gauge.Step{{Args: []*gauge.StepArg{{Value: "header", ArgType: gauge.Dynamic, Name: "header"}}}}, SpecDataTableRow: *gauge.NewTable([]string{"header"}, [][]gauge.TableCell{
 				{{Value: "row2", CellType: gauge.Static}},
-			}, 0), SpecDataTableRowIndex: 1}},
+			}, 0), SpecDataTableRowIndex: 1, ScenarioDataTableRowIndex: -1}},
 			DataTable: gauge.DataTable{Table: gauge.NewTable([]string{"header"}, [][]gauge.TableCell{
 				{{Value: "row2", CellType: gauge.Static}},
 			}, 0)},
@@ -231,7 +282,7 @@ func TestCreateSpecsForTableRows(t *testing.T) {
 				}, 0)},
 				&gauge.Scenario{Steps: []*gauge.Step{{Args: []*gauge.StepArg{{Value: "header", ArgType: gauge.Dynamic, Name: "header"}}}}, SpecDataTableRow: *gauge.NewTable([]string{"header"}, [][]gauge.TableCell{
 					{{Value: "row2", CellType: gauge.Static}},
-				}, 0), SpecDataTableRowIndex: 1},
+				}, 0), SpecDataTableRowIndex: 1, ScenarioDataTableRowIndex: -1},
 			},
 			TearDownSteps: []*gauge.Step{{Args: []*gauge.StepArg{{Value: "abc", ArgType: gauge.Static}}}},
 		},
@@ -243,5 +294,52 @@ func TestCreateSpecsForTableRows(t *testing.T) {
 		gotJSON, _ := json.Marshal(got)
 		wantJSON, _ := json.Marshal(want)
 		t.Errorf("Failed: Create specs for table row.\n\tWanted: %v\n\tGot: %v", string(wantJSON), string(gotJSON))
+	}
+}
+
+func TestSpecAndScenarioTableRowIndicesAreAlwaysSet(t *testing.T) {
+	steps := func(arg string, argType gauge.ArgType) []*gauge.Step {
+		return []*gauge.Step{{Args: []*gauge.StepArg{{Value: arg, ArgType: argType, Name: arg}}}}
+	}
+	specTable := func() gauge.DataTable {
+		return gauge.DataTable{Table: gauge.NewTable([]string{"specParam"}, [][]gauge.TableCell{
+			{{Value: "row1", CellType: gauge.Static}, {Value: "row2", CellType: gauge.Static}},
+		}, 0)}
+	}
+	plain := &gauge.Scenario{Heading: &gauge.Heading{Value: "plain"}, Steps: steps("abc", gauge.Static)}
+	usesSpecTable := &gauge.Scenario{Heading: &gauge.Heading{Value: "spec table"}, Steps: steps("specParam", gauge.Dynamic)}
+	usesScenarioTable := &gauge.Scenario{Heading: &gauge.Heading{Value: "scenario table"}, Steps: steps("scnParam", gauge.Dynamic),
+		DataTable: gauge.DataTable{Table: gauge.NewTable([]string{"scnParam"}, [][]gauge.TableCell{
+			{{Value: "scnRow1", CellType: gauge.Static}, {Value: "scnRow2", CellType: gauge.Static}},
+		}, 0)}}
+
+	specs := []*gauge.Specification{
+		// The context uses the spec table, so every scenario runs once per spec table row.
+		{Heading: &gauge.Heading{}, Contexts: steps("specParam", gauge.Dynamic), DataTable: specTable(), Scenarios: []*gauge.Scenario{plain, usesScenarioTable}},
+		// Only one scenario uses the spec table.
+		{Heading: &gauge.Heading{}, DataTable: specTable(), Scenarios: []*gauge.Scenario{usesSpecTable, plain, usesScenarioTable}},
+		// No spec table.
+		{Heading: &gauge.Heading{}, Scenarios: []*gauge.Scenario{plain, usesScenarioTable}},
+	}
+
+	var got [][]string
+	for _, spec := range GetSpecsForDataTableRows(specs, gauge.NewBuildErrors()) {
+		var scns []string
+		for _, scn := range spec.Scenarios {
+			scns = append(scns, fmt.Sprintf("%s %d/%d", scn.Heading.Value, scn.SpecDataTableRowIndex, scn.ScenarioDataTableRowIndex))
+		}
+		got = append(got, scns)
+	}
+
+	// "<scenario> <spec table row index>/<scenario table row index>" for each resulting spec
+	want := [][]string{
+		{"plain 0/-1", "scenario table 0/0", "scenario table 0/1"},
+		{"plain 1/-1", "scenario table 1/0", "scenario table 1/1"},
+		{"spec table 0/-1", "plain -1/-1", "scenario table -1/0", "scenario table -1/1"},
+		{"spec table 1/-1"},
+		{"plain -1/-1", "scenario table -1/0", "scenario table -1/1"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Wrong table row indices.\n\tWanted: %v\n\tGot: %v", want, got)
 	}
 }

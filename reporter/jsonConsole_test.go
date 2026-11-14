@@ -88,7 +88,7 @@ func (s *MySuite) TestScenarioEnd_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          false,
+		ExecutionStatus: gauge_messages.ExecutionStatus_PASSED,
 	}
 
 	scenario := &gauge.Scenario{
@@ -127,7 +127,6 @@ func (s *MySuite) TestScenarioEndWithPreHookFailure_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          true,
 		PreHookFailure: &gauge_messages.ProtoHookFailure{
 			StackTrace:   "stacktrace",
 			ErrorMessage: "message",
@@ -171,7 +170,6 @@ func (s *MySuite) TestScenarioEndWithPostHookFailure_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          true,
 		PostHookFailure: &gauge_messages.ProtoHookFailure{
 			StackTrace:   "stacktrace",
 			ErrorMessage: "message",
@@ -215,7 +213,6 @@ func (s *MySuite) TestScenarioEndWithPreAndPostHookFailure_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          true,
 		PreHookFailure: &gauge_messages.ProtoHookFailure{
 			StackTrace:   "stacktrace",
 			ErrorMessage: "message",
@@ -263,7 +260,6 @@ func (s *MySuite) TestScenarioEndWithBeforeStepHookFailure_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          true,
 		ScenarioItems: []*gauge_messages.ProtoItem{
 			{
 				ItemType: gauge_messages.ProtoItem_Step,
@@ -330,7 +326,6 @@ func (s *MySuite) TestScenarioEndWithStepFailure_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          true,
 		ScenarioItems: []*gauge_messages.ProtoItem{
 			{
 				ItemType: gauge_messages.ProtoItem_Step,
@@ -409,7 +404,6 @@ func (s *MySuite) TestScenarioEndWithConceptFailure_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          true,
 		ScenarioItems: []*gauge_messages.ProtoItem{
 			{
 				ItemType: gauge_messages.ProtoItem_Step,
@@ -486,7 +480,6 @@ func (s *MySuite) TestScenarioEndWithAfterStepHookFailure_JSONConsole(c *C) {
 
 	protoScenario := &gauge_messages.ProtoScenario{
 		ScenarioHeading: "Scenario",
-		Failed:          true,
 		ScenarioItems: []*gauge_messages.ProtoItem{
 			{
 				ItemType: gauge_messages.ProtoItem_Step,
@@ -780,5 +773,80 @@ func (s *MySuite) TestSuiteEndWithBeforeAndAfterHookFailure_JSONConsole(c *C) {
 	expected := `{"type":"suiteEnd","result":{"status":"fail","time":0,"afterHookFailure":{"text":"After Suite","filename":"","message":"message","lineNo":"","stackTrace":"stack trace"}}}
 `
 	jc.SuiteEnd(res)
+	c.Assert(dw.output, Equals, expected)
+}
+
+func (s *MySuite) TestScenarioStartWithScenarioDataTable_JSONConsole(c *C) {
+	dw, jc := setupJSONConsole()
+
+	scenario := &gauge.Scenario{
+		Heading: &gauge.Heading{
+			Value:       "Scenario with data table",
+			LineNo:      2,
+			HeadingType: 1,
+		},
+		Span: &gauge.Span{
+			Start: 2,
+			End:   5,
+		},
+		ScenarioDataTableRow:      *gauge.NewTable([]string{"header"}, [][]gauge.TableCell{{{Value: "value1", CellType: gauge.Static}}}, 0),
+		ScenarioDataTableRowIndex: 0,
+	}
+
+	info := &gauge_messages.ExecutionInfo{
+		CurrentSpec: &gauge_messages.SpecInfo{
+			Name:     "Specification",
+			FileName: "file",
+			IsFailed: false,
+		},
+		CurrentScenario: &gauge_messages.ScenarioInfo{
+			Name:     "Scenario with data table",
+			IsFailed: false,
+		},
+	}
+
+	expected := `{"type":"scenarioStart","id":"file:2","parentId":"file","name":"Scenario with data table","filename":"file","line":2,"result":{"time":0,"table":{"text":"\n   |header|\n   |------|\n   |value1|\n","rowIndex":0}}}
+`
+	jc.ScenarioStart(scenario, info, &result.ScenarioResult{})
+	c.Assert(dw.output, Equals, expected)
+}
+
+func (s *MySuite) TestScenarioEndWithScenarioDataTable_JSONConsole(c *C) {
+	dw, jc := setupJSONConsole()
+
+	protoScenario := &gauge_messages.ProtoScenario{
+		ScenarioHeading: "Scenario with data table",
+		ExecutionStatus: gauge_messages.ExecutionStatus_PASSED,
+	}
+
+	scenario := &gauge.Scenario{
+		Heading: &gauge.Heading{
+			Value:       "Scenario with data table",
+			LineNo:      2,
+			HeadingType: 1,
+		},
+		Span: &gauge.Span{
+			Start: 2,
+			End:   5,
+		},
+		ScenarioDataTableRow:      *gauge.NewTable([]string{"header"}, [][]gauge.TableCell{{{Value: "value1", CellType: gauge.Static}}}, 0),
+		ScenarioDataTableRowIndex: 0,
+	}
+
+	info := &gauge_messages.ExecutionInfo{
+		CurrentSpec: &gauge_messages.SpecInfo{
+			Name:     "Specification",
+			FileName: "file",
+			IsFailed: false,
+		},
+		CurrentScenario: &gauge_messages.ScenarioInfo{
+			Name:     "Scenario with data table",
+			IsFailed: false,
+		},
+	}
+
+	expected := `{"type":"scenarioEnd","id":"file:2","parentId":"file","name":"Scenario with data table","filename":"file","line":2,"result":{"status":"pass","time":0,"table":{"text":"\n   |header|\n   |------|\n   |value1|\n","rowIndex":0}}}
+`
+	jc.ScenarioEnd(scenario, &result.ScenarioResult{ProtoScenario: protoScenario}, info)
 	c.Assert(dw.output, Equals, expected)
 }

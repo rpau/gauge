@@ -104,19 +104,7 @@ func (e *specExecutor) execute(executeBefore, execute, executeAfter bool) *resul
 				logger.Fatalf(true, "Failed to resolve Specifications : %s", err.Error())
 			}
 			e.specResult.AddScenarioResults(results)
-			scnMap := make(map[int]bool)
-			for _, s := range tableDriven {
-				if _, ok := scnMap[s.Span.Start]; !ok {
-					scnMap[s.Span.Start] = true
-				}
-				r, err := e.executeScenario(s)
-				if err != nil {
-					logger.Fatalf(true, "Failed to resolve Specifications : %s", err.Error())
-				}
-				e.specResult.AddTableDrivenScenarioResult(r, gauge.ConvertToProtoTable(s.DataTable.Table),
-					s.ScenarioDataTableRowIndex, s.SpecDataTableRowIndex, s.SpecDataTableRow.IsInitialized())
-			}
-			e.specResult.ScenarioCount += len(scnMap)
+			e.executeScenarioTableDrivenScenarios(tableDriven)
 		} else {
 			err := e.executeSpec()
 			if err != nil {
@@ -152,16 +140,43 @@ func (e *specExecutor) executeSpec() error {
 	nonTableRelatedScenarios, tableRelatedScenarios := parser.FilterTableRelatedScenarios(e.specification.Scenarios, func(s *gauge.Scenario) bool {
 		return s.SpecDataTableRow.IsInitialized()
 	})
-	res, err := e.executeScenarios(nonTableRelatedScenarios)
+
+	others, scenarioTableDriven := parser.FilterTableRelatedScenarios(nonTableRelatedScenarios, func(s *gauge.Scenario) bool {
+		return s.ScenarioDataTableRow.IsInitialized()
+	})
+
+	res, err := e.executeScenarios(others)
 	if err != nil {
 		return err
 	}
 	e.specResult.AddScenarioResults(res)
+	e.executeScenarioTableDrivenScenarios(scenarioTableDriven)
 	err = e.executeTableRelatedScenarios(tableRelatedScenarios)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (e *specExecutor) executeScenarioTableDrivenScenarios(scenarios []*gauge.Scenario) {
+	scnMap := make(map[int]bool)
+	failedScnMap := make(map[int]bool)
+	for _, s := range scenarios {
+		if _, ok := scnMap[s.Span.Start]; !ok {
+			scnMap[s.Span.Start] = true
+		}
+		r, err := e.executeScenario(s)
+		if err != nil {
+			logger.Fatalf(true, "Failed to resolve Specifications : %s", err.Error())
+		}
+		if r.GetFailed() {
+			failedScnMap[s.Span.Start] = true
+		}
+		e.specResult.AddTableDrivenScenarioResult(r, gauge.ConvertToProtoTable(s.DataTable.Table),
+			s.ScenarioDataTableRowIndex, s.SpecDataTableRowIndex, s.SpecDataTableRow.IsInitialized())
+	}
+	e.specResult.ScenarioCount += len(scnMap)
+	e.specResult.ScenarioFailedCount += len(failedScnMap)
 }
 
 func (e *specExecutor) initSpecDataStore() *gauge_messages.ProtoExecutionResult {
@@ -177,7 +192,6 @@ func (e *specExecutor) notifyBeforeSpecHook() {
 	res := executeHook(m, e.specResult, e.runner)
 	e.specResult.ProtoSpec.PreHookMessages = res.Message
 	e.specResult.ProtoSpec.PreHookScreenshotFiles = res.ScreenshotFiles
-	e.specResult.ProtoSpec.PreHookScreenshots = res.Screenshots
 	if res.GetFailed() {
 		setSpecFailure(e.currentExecutionInfo)
 		handleHookFailure(e.specResult, res, result.AddPreHook)
@@ -193,7 +207,6 @@ func (e *specExecutor) notifyAfterSpecHook() {
 	res := executeHook(m, e.specResult, e.runner)
 	e.specResult.ProtoSpec.PostHookMessages = res.Message
 	e.specResult.ProtoSpec.PostHookScreenshotFiles = res.ScreenshotFiles
-	e.specResult.ProtoSpec.PostHookScreenshots = res.Screenshots
 	if res.GetFailed() {
 		setSpecFailure(e.currentExecutionInfo)
 		handleHookFailure(e.specResult, res, result.AddPostHook)
@@ -203,7 +216,7 @@ func (e *specExecutor) notifyAfterSpecHook() {
 }
 
 func (e *specExecutor) skipSpecForError(err error) {
-	logger.Errorf(true, err.Error())
+	logger.Error(true, err.Error())
 	validationError := validation.NewStepValidationError(&gauge.Step{LineNo: e.specification.Heading.LineNo, LineText: e.specification.Heading.Value},
 		err.Error(), e.specification.FileName, nil, "")
 	for _, scenario := range e.specification.Scenarios {
@@ -301,6 +314,10 @@ func (e *specExecutor) executeScenario(scenario *gauge.Scenario) (*result.Scenar
 			Name:     scenario.Heading.Value,
 			Tags:     getTagValue(scenario.Tags),
 			IsFailed: false,
+			Retries: &gauge_messages.ScenarioRetriesInfo{
+				MaxRetries:   int32(MaxRetriesCount) - 1,
+				CurrentRetry: int32(retriesCount),
+			},
 		}
 
 		scenarioResult = &result.ScenarioResult{
@@ -318,7 +335,7 @@ func (e *specExecutor) executeScenario(scenario *gauge.Scenario) (*result.Scenar
 			e.specResult.ScenarioSkippedCount++
 		}
 
-		if !(shouldRetry && scenarioResult.GetFailed()) {
+		if !shouldRetry || !scenarioResult.GetFailed() {
 			break
 		}
 	}

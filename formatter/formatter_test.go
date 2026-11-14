@@ -9,11 +9,10 @@ package formatter
 import (
 	"testing"
 
-	"github.com/getgauge/gauge/env"
-
 	"github.com/getgauge/gauge-proto/go/gauge_messages"
 	"github.com/getgauge/gauge/gauge"
 	"github.com/getgauge/gauge/parser"
+	"github.com/getgauge/gauge/config"
 	. "gopkg.in/check.v1"
 )
 
@@ -23,12 +22,18 @@ type MySuite struct{}
 
 var _ = Suite(&MySuite{})
 
+// Setup method to make sure each test starts with a known configuration
+func (s *MySuite) SetUpTest(c *C) {
+	config.SetSkipEmptyLineInsertions(false)
+}
+
 func (s *MySuite) TestFormatSpecification(c *C) {
 	tokens := []*parser.Token{
 		&parser.Token{Kind: gauge.SpecKind, Value: "Spec Heading", LineNo: 1},
 		&parser.Token{Kind: gauge.ScenarioKind, Value: "Scenario Heading", LineNo: 2},
-		&parser.Token{Kind: gauge.StepKind, Value: "Example step", LineNo: 3, Lines: []string{"Example step"}},
-		&parser.Token{Kind: gauge.StepKind, Value: "Step with inline table", LineNo: 3, Lines: []string{"Step with inline table "}},
+		&parser.Token{Kind: gauge.TagKind, Args: []string{"test_tag1", "test_tag2"}, LineNo: 3},
+		&parser.Token{Kind: gauge.StepKind, Value: "Example step", LineNo: 4, Lines: []string{"Example step"}},
+		&parser.Token{Kind: gauge.StepKind, Value: "Step with inline table", LineNo: 5, Lines: []string{"Step with inline table "}},
 		&parser.Token{Kind: gauge.TableHeader, Args: []string{"id", "name"}},
 		&parser.Token{Kind: gauge.TableRow, Args: []string{"<1>", "foo"}},
 		&parser.Token{Kind: gauge.TableRow, Args: []string{"2", "bar"}},
@@ -41,6 +46,9 @@ func (s *MySuite) TestFormatSpecification(c *C) {
 	c.Assert(formatted, Equals,
 		`# Spec Heading
 ## Scenario Heading
+
+tags: test_tag1, test_tag2
+
 * Example step
 * Step with inline table
 
@@ -50,6 +58,38 @@ func (s *MySuite) TestFormatSpecification(c *C) {
    |2  |bar |
 `)
 }
+
+func (s *MySuite) TestFormatSpecificationSkipEmptyLineInsertions(c *C) {
+	config.SetSkipEmptyLineInsertions(true)
+	tokens := []*parser.Token{
+		&parser.Token{Kind: gauge.SpecKind, Value: "Spec Heading", LineNo: 1},
+		&parser.Token{Kind: gauge.ScenarioKind, Value: "Scenario Heading", LineNo: 2},
+		&parser.Token{Kind: gauge.TagKind, Args: []string{"test_tag1", "test_tag2"}, LineNo: 3},
+		&parser.Token{Kind: gauge.StepKind, Value: "Example step", LineNo: 4, Lines: []string{"Example step"}},
+		&parser.Token{Kind: gauge.StepKind, Value: "Step with inline table", LineNo: 5, Lines: []string{"Step with inline table "}},
+		&parser.Token{Kind: gauge.TableHeader, Args: []string{"id", "name"}},
+		&parser.Token{Kind: gauge.TableRow, Args: []string{"<1>", "foo"}},
+		&parser.Token{Kind: gauge.TableRow, Args: []string{"2", "bar"}},
+	}
+
+	spec, _, _ := new(parser.SpecParser).CreateSpecification(tokens, gauge.NewConceptDictionary(), "")
+
+	formatted := FormatSpecification(spec)
+
+	c.Assert(formatted, Equals,
+		`# Spec Heading
+## Scenario Heading
+tags: test_tag1, test_tag2
+* Example step
+* Step with inline table
+   |id |name|
+   |---|----|
+   |<1>|foo |
+   |2  |bar |
+`)
+}
+
+
 
 func (s *MySuite) TestFormatTable(c *C) {
 	cell1 := gauge.TableCell{Value: "john", CellType: gauge.Static}
@@ -342,7 +382,6 @@ func (s *MySuite) TestFormatShouldRetainNewlines(c *C) {
 		&parser.Token{Kind: gauge.TableRow, Args: []string{"2", "bar"}},
 	}
 
-	env.AllowScenarioDatatable = func() bool { return true }
 	spec, _, _ := new(parser.SpecParser).CreateSpecification(tokens, gauge.NewConceptDictionary(), "")
 	formatted := FormatSpecification(spec)
 	c.Assert(formatted, Equals,
@@ -494,4 +533,294 @@ func (s *MySuite) TestFormatShouldNotAddExtraNewLinesBeforeDataTable(c *C) {
    |GoCD  |1          |
    |Rhythm|0          |
 `)
+}
+
+
+func TestFormatStepWithMultilineSpecialStringXML(t *testing.T) {
+	xmlContent := `<user>
+<name>Alice</name>
+<age>30</age>
+<isStudent>false</isStudent>
+<hobbies>
+    <hobby>reading</hobby>
+    <hobby>hiking</hobby>
+    <hobby>gaming</hobby>
+</hobbies>
+</user>`
+
+	step := &gauge.Step{
+		Value: "Step with multiline {}",
+		Args: []*gauge.StepArg{
+			{
+				Name:    "xmlContent",
+				ArgType: gauge.MultilineString,
+				Value:   xmlContent,
+			},
+		},
+	}
+
+	got := FormatStep(step)
+
+	want := `* Step with multiline
+"""
+<user>
+<name>Alice</name>
+<age>30</age>
+<isStudent>false</isStudent>
+<hobbies>
+    <hobby>reading</hobby>
+    <hobby>hiking</hobby>
+    <hobby>gaming</hobby>
+</hobbies>
+</user>
+"""
+`
+
+	if got != want {
+		t.Errorf("unexpected formatted step.\nGot:\n%q\nWant:\n%q", got, want)
+	}
+}
+
+func TestFormatStepWithMultilineSpecialStringJSON(t *testing.T) {
+	jsonContent := `{
+"name": "Alice",
+"age": 30,
+"isStudent": false,
+"hobbies": ["reading", "hiking", "gaming"]
+}`
+
+	step := &gauge.Step{
+		Value: "Step with multiline {}",
+		Args: []*gauge.StepArg{
+			{
+				Name:    "jsonContent",
+				ArgType: gauge.MultilineString,
+				Value:   jsonContent,
+			},
+		},
+	}
+
+	got := FormatStep(step)
+
+	want := `* Step with multiline
+"""
+{
+"name": "Alice",
+"age": 30,
+"isStudent": false,
+"hobbies": ["reading", "hiking", "gaming"]
+}
+"""
+`
+
+	if got != want {
+		t.Errorf("unexpected formatted step.\nGot:\n%q\nWant:\n%q", got, want)
+	}
+}
+
+func TestFormatStepWithMultilineSpecialStringWithEscapedNewlines(t *testing.T) {
+	contentWithEscapedNewlines := "line 1\nline 2\nline 3"
+
+	step := &gauge.Step{
+		Value: "Step with escaped newlines {}",
+		Args: []*gauge.StepArg{
+			{
+				Name:    "multilineContent",
+				ArgType: gauge.MultilineString,
+				Value:   contentWithEscapedNewlines,
+			},
+		},
+	}
+
+	got := FormatStep(step)
+
+	want := `* Step with escaped newlines
+"""
+line 1
+line 2
+line 3
+"""
+`
+
+	if got != want {
+		t.Errorf("unexpected formatted step.\nGot:\n%q\nWant:\n%q", got, want)
+	}
+}
+
+func TestFormatStepWithSingleLineSpecialString(t *testing.T) {
+	singleLineContent := "simple string"
+
+	step := &gauge.Step{
+		Value: "Step with single line {}",
+		Args: []*gauge.StepArg{
+			{
+				Name:    "singleLineContent",
+				ArgType: gauge.Static,
+				Value:   singleLineContent,
+			},
+		},
+	}
+
+	got := FormatStep(step)
+
+	want := `* Step with single line "simple string"
+`
+
+	if got != want {
+		t.Errorf("unexpected formatted step.\nGot:\n%q\nWant:\n%q", got, want)
+	}
+}
+func TestFormatStepWithMultilineSpecialStringHTML(t *testing.T) {
+	htmlContent := `<html>
+<head>
+    <title>Test Page</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { margin: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to the Test Page</h1>
+        <p>This is a paragraph with <strong>bold</strong> and <em>italic</em> text.</p>
+        <ul>
+            <li>Item 1</li>
+            <li>Item 2</li>
+            <li>Item 3</li>
+        </ul>
+    </div>
+</body>
+</html>`
+
+	step := &gauge.Step{
+		Value: "Render HTML page {}",
+		Args: []*gauge.StepArg{
+			{
+				Name:    "htmlContent",
+				ArgType: gauge.MultilineString,
+				Value:   htmlContent,
+			},
+		},
+	}
+
+	got := FormatStep(step)
+
+	want := `* Render HTML page
+"""
+<html>
+<head>
+    <title>Test Page</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { margin: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to the Test Page</h1>
+        <p>This is a paragraph with <strong>bold</strong> and <em>italic</em> text.</p>
+        <ul>
+            <li>Item 1</li>
+            <li>Item 2</li>
+            <li>Item 3</li>
+        </ul>
+    </div>
+</body>
+</html>
+"""
+`
+
+	if got != want {
+		t.Errorf("unexpected formatted step.\nGot:\n%q\nWant:\n%q", got, want)
+	}
+}
+
+func TestFormatStepWithMultilineSpecialStringHTMLFragment(t *testing.T) {
+	htmlFragment := `<div class="user-profile">
+    <h2>User Information</h2>
+    <p><strong>Name:</strong> John Doe</p>
+    <p><strong>Email:</strong> john.doe@example.com</p>
+    <p><strong>Status:</strong> <span class="active">Active</span></p>
+</div>`
+
+	step := &gauge.Step{
+		Value: "Display user profile {}",
+		Args: []*gauge.StepArg{
+			{
+				Name:    "profileHtml",
+				ArgType: gauge.MultilineString,
+				Value:   htmlFragment,
+			},
+		},
+	}
+
+	got := FormatStep(step)
+
+	want := `* Display user profile
+"""
+<div class="user-profile">
+    <h2>User Information</h2>
+    <p><strong>Name:</strong> John Doe</p>
+    <p><strong>Email:</strong> john.doe@example.com</p>
+    <p><strong>Status:</strong> <span class="active">Active</span></p>
+</div>
+"""
+`
+
+	if got != want {
+		t.Errorf("unexpected formatted step.\nGot:\n%q\nWant:\n%q", got, want)
+	}
+}
+
+func TestFormatStepWithMultilineSpecialStringMarkdown(t *testing.T) {
+	markdownContent := `# Project Documentation
+
+## Introduction
+This is a sample markdown document with various elements.
+
+### Features
+- Feature 1: Does something amazing
+- Feature 2: Provides excellent performance
+- Feature 3: Easy to use
+
+### Code Block
+We can show code examples here.
+
+> Note: This is a blockquote emphasizing important information.`
+
+	step := &gauge.Step{
+		Value: "Generate documentation {}",
+		Args: []*gauge.StepArg{
+			{
+				Name:    "markdownContent",
+				ArgType: gauge.MultilineString,
+				Value:   markdownContent,
+			},
+		},
+	}
+
+	got := FormatStep(step)
+
+	want := `* Generate documentation
+"""
+# Project Documentation
+
+## Introduction
+This is a sample markdown document with various elements.
+
+### Features
+- Feature 1: Does something amazing
+- Feature 2: Provides excellent performance
+- Feature 3: Easy to use
+
+### Code Block
+We can show code examples here.
+
+> Note: This is a blockquote emphasizing important information.
+"""
+`
+
+	if got != want {
+		t.Errorf("unexpected formatted step.\nGot:\n%q\nWant:\n%q", got, want)
+	}
 }

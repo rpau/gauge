@@ -8,7 +8,6 @@ package util
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,13 +26,15 @@ var dir string
 
 func (s *MySuite) SetUpTest(c *C) {
 	var err error
-	dir, err = ioutil.TempDir("", "gaugeTest")
+	dir, err = os.MkdirTemp("", "gaugeTest")
 	c.Assert(err, Equals, nil)
 }
 
 func (s *MySuite) TearDownTest(c *C) {
 	err := os.RemoveAll(dir)
 	c.Assert(err, Equals, nil)
+	c.Assert(os.Unsetenv(env.SpecsDir), Equals, nil)
+	c.Assert(os.Unsetenv(env.ConceptsDir), Equals, nil)
 }
 
 func (s *MySuite) TestFindAllSpecFiles(c *C) {
@@ -46,7 +47,7 @@ Scenario 1
 	spec1, err := createFileIn(dir, "gaugeSpec1.spec", data)
 	c.Assert(err, Equals, nil)
 
-	dataRead, err := ioutil.ReadFile(spec1)
+	dataRead, err := os.ReadFile(spec1)
 	c.Assert(err, Equals, nil)
 	c.Assert(string(dataRead), Equals, string(data))
 	c.Assert(len(FindSpecFilesIn(dir)), Equals, 1)
@@ -139,7 +140,7 @@ func (s *MySuite) TestFindAllConceptFilesInNestedDir(c *C) {
 	c.Assert(err, Equals, nil)
 	c.Assert(len(FindConceptFilesIn(dir)), Equals, 1)
 
-	dir1, err := ioutil.TempDir(dir, "gaugeTest1")
+	dir1, err := os.MkdirTemp(dir, "gaugeTest1")
 	c.Assert(err, Equals, nil)
 
 	_, err = createFileIn(dir1, "concept2.cpt", data)
@@ -166,14 +167,35 @@ func (s *MySuite) TestGetConceptFiles(c *C) {
 
 func (s *MySuite) TestGetConceptFilesWhenSpecDirIsOutsideProjectRoot(c *C) {
 	config.ProjectRoot = "_testdata"
-	os.Setenv(env.SpecsDir, "_testSpecDir")
+	_ = os.Setenv(env.SpecsDir, "../_testSpecDir")
 	c.Assert(len(GetConceptFiles()), Equals, 3)
 }
 
 func (s *MySuite) TestGetConceptFilesWhenSpecDirIsWithInProject(c *C) {
 	config.ProjectRoot = "_testdata"
-	os.Setenv(env.SpecsDir, "_testdata/specs")
+	_ = os.Setenv(env.SpecsDir, "_testdata/specs")
 	c.Assert(len(GetConceptFiles()), Equals, 2)
+}
+
+func (s *MySuite) TestGetConceptFilesWhenConceptsDirSet(c *C) {
+	config.ProjectRoot = "_testdata"
+	c.Assert(len(GetConceptFiles()), Equals, 2)
+
+	_ = os.Setenv(env.ConceptsDir, filepath.Join("specs", "concept1.cpt"))
+	c.Assert(len(GetConceptFiles()), Equals, 1)
+
+	_ = os.Setenv(env.ConceptsDir, filepath.Join("specs", "subdir"))
+	c.Assert(len(GetConceptFiles()), Equals, 1)
+
+	conceptPath, _ := filepath.Abs(filepath.Join("_testdata", "specs", "subdir", "concept2.cpt"))
+	_ = os.Setenv(env.ConceptsDir, conceptPath)
+	c.Assert(len(GetConceptFiles()), Equals, 1)
+}
+
+func (s *MySuite) TestGetConceptFilesWhenConceptDirIsOutsideProjectRoot(c *C) {
+	config.ProjectRoot = "_testdata"
+	_ = os.Setenv(env.ConceptsDir, "../_testSpecDir,../_testdata/specs")
+	c.Assert(len(GetConceptFiles()), Equals, 3)
 }
 
 func (s *MySuite) TestFindAllNestedDirs(c *C) {
@@ -234,7 +256,7 @@ func (s *MySuite) TestGetPathToFileInGaugeDataDir(c *C) {
 	var path string
 	config.ProjectRoot = "PROJECT_ROOT"
 	oldGaugeDataDirFn := env.GaugeDataDir
-	defer func(fn func() string) {env.GaugeDataDir = fn }(oldGaugeDataDirFn)
+	defer func(fn func() string) { env.GaugeDataDir = fn }(oldGaugeDataDirFn)
 	env.GaugeDataDir = func() string { return "foo" }
 
 	absPath, _ := filepath.Abs("foo.csv")
@@ -246,7 +268,7 @@ func (s *MySuite) TestGetPathToAbsFileWithGaugeDataDir(c *C) {
 	var path string
 	config.ProjectRoot = "PROJECT_ROOT"
 	oldGaugeDataDirFn := env.GaugeDataDir
-	defer func(fn func() string	) {env.GaugeDataDir = fn }(oldGaugeDataDirFn)
+	defer func(fn func() string) { env.GaugeDataDir = fn }(oldGaugeDataDirFn)
 	env.GaugeDataDir = func() string { return "foo" }
 
 	path = GetPathToFile("foo.csv")
@@ -259,7 +281,25 @@ func (s *MySuite) TestGetSpecFilesWhenSpecsDirDoesNotExists(c *C) {
 		expectedErrorMessage = message
 	}
 	GetSpecFiles([]string{"dir1"})
-	c.Assert(expectedErrorMessage, Equals, "Specs directory dir1 does not exists.")
+	c.Assert(expectedErrorMessage, Equals, "Specs directory dir1 does not exist.")
+}
+
+func (s *MySuite) TestGetConceptFilesWhenConceptsDirDoesNotExists(c *C) {
+	var expectedErrorMessage string
+	exitWithMessage = func(message string) {
+		expectedErrorMessage = message
+	}
+	config.ProjectRoot = "_testdata"
+
+	_ = os.Setenv(env.SpecsDir, "specs2")
+	GetConceptFiles()
+	directory, _ := filepath.Abs(filepath.Join(config.ProjectRoot, "specs2"))
+	c.Assert(expectedErrorMessage, Equals, fmt.Sprintf("No such file or directory: %s", directory))
+
+	_ = os.Setenv(env.SpecsDir, "_testSpecsDir,non-exisitng")
+	GetConceptFiles()
+	directory, _ = filepath.Abs(filepath.Join(config.ProjectRoot, "non-exisitng"))
+	c.Assert(expectedErrorMessage, Equals, fmt.Sprintf("No such file or directory: %s", directory))
 }
 
 func (s *MySuite) TestGetSpecFilesWhenSpecsDirIsEmpty(c *C) {
@@ -287,12 +327,12 @@ func createFileIn(dir string, fileName string, data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	err = ioutil.WriteFile(filepath.Join(dir, fileName), data, 0644)
+	err = os.WriteFile(filepath.Join(dir, fileName), data, 0644)
 	return filepath.Join(dir, fileName), err
 }
 
 func createDirIn(dir string, dirName string) (string, error) {
-	tempDir, err := ioutil.TempDir(dir, dirName)
+	tempDir, err := os.MkdirTemp(dir, dirName)
 	if err != nil {
 		return "", err
 	}

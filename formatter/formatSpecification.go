@@ -7,15 +7,14 @@
 package formatter
 
 import (
-	"bytes"
-
 	"strings"
 
+	"github.com/getgauge/gauge/config"
 	"github.com/getgauge/gauge/gauge"
 )
 
 type formatter struct {
-	buffer    bytes.Buffer
+	buffer    strings.Builder
 	itemQueue *gauge.ItemQueue
 }
 
@@ -23,19 +22,20 @@ func (formatter *formatter) Specification(specification *gauge.Specification) {
 }
 
 func (formatter *formatter) Heading(heading *gauge.Heading) {
-	if heading.HeadingType == gauge.SpecHeading {
+	switch heading.HeadingType {
+	case gauge.SpecHeading:
 		formatter.buffer.WriteString(FormatHeading(heading.Value, "#"))
-	} else if heading.HeadingType == gauge.ScenarioHeading {
+	case gauge.ScenarioHeading:
 		formatter.buffer.WriteString(FormatHeading(heading.Value, "##"))
 	}
 }
 
 func (formatter *formatter) Tags(tags *gauge.Tags) {
-	if !strings.HasSuffix(formatter.buffer.String(), "\n\n") {
+	if !strings.HasSuffix(formatter.buffer.String(), "\n\n") && !config.CurrentGaugeSettings().Format.SkipEmptyLineInsertions {
 		formatter.buffer.WriteString("\n")
 	}
 	formatter.buffer.WriteString(FormatTags(tags))
-	if formatter.itemQueue.Peek() != nil && (formatter.itemQueue.Peek().Kind() != gauge.CommentKind || strings.TrimSpace(formatter.itemQueue.Peek().(*gauge.Comment).Value) != "") {
+	if formatter.itemQueue.Peek() != nil && (formatter.itemQueue.Peek().Kind() != gauge.CommentKind || strings.TrimSpace(formatter.itemQueue.Peek().(*gauge.Comment).Value) != "") && !config.CurrentGaugeSettings().Format.SkipEmptyLineInsertions {
 		formatter.buffer.WriteString("\n")
 	}
 }

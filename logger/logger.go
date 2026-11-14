@@ -118,7 +118,7 @@ func logError(logger *logging.Logger, stdout bool, msg string) {
 		write(stdout, msg, os.Stdout)
 	}
 	if !initialized {
-		fmt.Fprint(os.Stderr, msg)
+		_, _ = fmt.Fprint(os.Stderr, msg)
 		return
 	}
 	logger.Errorf(msg)
@@ -146,7 +146,7 @@ func logDebug(logger *logging.Logger, stdout bool, msg string) {
 
 func logCritical(logger *logging.Logger, msg string) {
 	if !initialized {
-		fmt.Fprint(os.Stderr, msg)
+		_, _ = fmt.Fprint(os.Stderr, msg)
 		return
 	}
 	logger.Criticalf(msg)
@@ -158,7 +158,7 @@ func write(stdout bool, msg string, writer io.Writer) {
 		if machineReadable {
 			machineReadableLog(msg)
 		} else {
-			fmt.Fprintln(writer, msg)
+			_, _ = fmt.Fprintln(writer, msg)
 		}
 	}
 }
@@ -198,7 +198,7 @@ var createFileLogger = func(name string, size int) logging.Backend {
 	return logging.NewLogBackend(&lumberjack.Logger{
 		Filename:   name,
 		MaxSize:    size, // megabytes
-		MaxBackups: 3,
+		MaxBackups: config.LogMaxBackupsCount(),
 		MaxAge:     28, //days
 	}, "", 0)
 }

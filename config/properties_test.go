@@ -7,7 +7,6 @@
 package config
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -71,7 +70,7 @@ func TestPropertiesFormat(t *testing.T) {
 func TestMergedProperties(t *testing.T) {
 	want := "false"
 	idFile := filepath.Join("_testData", "config", "gauge.properties")
-	err := ioutil.WriteFile(idFile, []byte("check_updates=false"), common.NewFilePermissions)
+	err := os.WriteFile(idFile, []byte("check_updates=false"), common.NewFilePermissions)
 	if err != nil {
 		t.Error(err)
 	}
@@ -80,7 +79,7 @@ func TestMergedProperties(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	os.Setenv("GAUGE_HOME", s)
+	_ = os.Setenv("GAUGE_HOME", s)
 
 	p, err := mergedProperties()
 	if err != nil {
@@ -95,7 +94,7 @@ func TestMergedProperties(t *testing.T) {
 	if got != want {
 		t.Errorf("Properties Merge failed, want: %s == `%s`, got `%s`", checkUpdates, want, got)
 	}
-	os.Setenv("GAUGE_HOME", "")
+	_ = os.Setenv("GAUGE_HOME", "")
 	err = os.Remove(idFile)
 	if err != nil {
 		t.Error(err)
@@ -116,6 +115,9 @@ gauge_repository_url = https://downloads.gauge.org/plugin
 
 # Timeout in milliseconds for requests from runner when invoked for ide.
 ide_request_timeout = 30000
+
+# The maximum number of backup log files to retain.
+log_max_backups_count = 3
 
 # Timeout in milliseconds for making a connection to plugins.
 plugin_connection_timeout = 10000
@@ -189,9 +191,9 @@ func TestPropertiesStringConcurrent(t *testing.T) {
 
 func TestWriteGaugePropertiesOnlyForNewVersion(t *testing.T) {
 	oldEnv := os.Getenv("GAUGE_HOME")
-	os.Setenv("GAUGE_HOME", filepath.Join(".", "_testData"))
+	_ = os.Setenv("GAUGE_HOME", filepath.Join(".", "_testData"))
 	propFile := filepath.Join("_testData", "config", "gauge.properties")
-	err := ioutil.WriteFile(propFile, []byte("# Version 0.8.0"), common.NewFilePermissions)
+	err := os.WriteFile(propFile, []byte("# Version 0.8.0"), common.NewFilePermissions)
 	if err != nil {
 		t.Error(err)
 	}
@@ -209,6 +211,6 @@ func TestWriteGaugePropertiesOnlyForNewVersion(t *testing.T) {
 	if got.String() != want {
 		t.Errorf("Expected Gauge Version in gauge.properties %s, got %s", want, got)
 	}
-	os.Setenv("GAUGE_HOME", oldEnv)
-	os.Remove(propFile)
+	_ = os.Setenv("GAUGE_HOME", oldEnv)
+	_ = os.Remove(propFile)
 }

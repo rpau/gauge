@@ -32,6 +32,7 @@ import (
 	"github.com/getgauge/gauge/version"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -72,17 +73,20 @@ func (p *plugin) killGrpcProcess() error {
 	}
 	if m == nil || err != nil {
 		errStatus, _ := status.FromError(err)
-		if errStatus.Code() == codes.Unavailable {
-			// Ref https://www.grpc.io/docs/guides/error/#general-errors
-			// GRPC_STATUS_UNAVAILABLE is thrown when Server is shutting down. Ignore it here.
-			return nil
+		if errStatus.Code() != codes.Unavailable {
+			return err
 		}
-		return err
+		// Ref https://www.grpc.io/docs/guides/error/#general-errors
+		// GRPC_STATUS_UNAVAILABLE is thrown when Server is shutting down.
+		// Fall through to wait for the process to exit so that all
+		// stdout/stderr output is drained before we return.
 	}
 	if p.gRPCConn == nil && p.pluginCmd == nil {
 		return nil
 	}
-	defer p.gRPCConn.Close()
+	defer func(gRPCConn *grpc.ClientConn) {
+		_ = gRPCConn.Close()
+	}(p.gRPCConn)
 
 	if isProcessRunning(p) {
 		exited := make(chan bool, 1)
@@ -117,7 +121,9 @@ func (p *plugin) kill(wg *sync.WaitGroup) error {
 		return p.killGrpcProcess()
 	}
 	if isProcessRunning(p) {
-		defer p.connection.Close()
+		defer func(connection net.Conn) {
+			_ = connection.Close()
+		}(p.connection)
 		p.killTimer = time.NewTimer(config.PluginKillTimeout())
 		err := conn.SendProcessKillMessage(p.connection)
 		if err != nil {
@@ -251,10 +257,9 @@ func startGRPCPlugin(pd *PluginDescriptor, command []string) (*plugin, error) {
 		return nil, fmt.Errorf("timed out connecting to %s", pd.ID)
 	}
 	logger.Debugf(true, "Attempting to connect to grpc server at port: %s", port)
-	gRPCConn, err := grpc.Dial(fmt.Sprintf("%s:%s", "127.0.0.1", port),
-		grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(1024*1024*1024), grpc.MaxCallRecvMsgSize(1024*1024*1024)),
-		grpc.WithBlock())
+	gRPCConn, err := grpc.NewClient(fmt.Sprintf("%s:%s", "127.0.0.1", port),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(1024*1024*1024), grpc.MaxCallRecvMsgSize(1024*1024*1024)))
 	if err != nil {
 		return nil, err
 	}
@@ -394,8 +399,8 @@ func GenerateDoc(pluginName string, specDirs []string, startAPIFunc func([]strin
 		path, _ := filepath.Abs(src)
 		sources = append(sources, path)
 	}
-	os.Setenv("GAUGE_SPEC_DIRS", strings.Join(sources, "||"))
-	os.Setenv("GAUGE_PROJECT_ROOT", config.ProjectRoot)
+	_ = os.Setenv("GAUGE_SPEC_DIRS", strings.Join(sources, "||"))
+	_ = os.Setenv("GAUGE_PROJECT_ROOT", config.ProjectRoot)
 	if pd.hasCapability(gRPCSupportCapability) {
 		p, err := startPlugin(pd, docScope)
 		if err != nil {
@@ -446,6 +451,10 @@ func (p *plugin) invokeService(m *gauge_messages.Message) error {
 		_, err = p.ReporterClient.NotifyStepExecutionEnding(ctx, m.GetStepExecutionEndingRequest())
 	case gauge_messages.Message_StepExecutionStarting:
 		_, err = p.ReporterClient.NotifyStepExecutionStarting(ctx, m.GetStepExecutionStartingRequest())
+	case gauge_messages.Message_ConceptExecutionEnding:
+		_, err = p.ReporterClient.NotifyConceptExecutionEnding(ctx, m.GetConceptExecutionEndingRequest())
+	case gauge_messages.Message_ConceptExecutionStarting:
+		_, err = p.ReporterClient.NotifyConceptExecutionStarting(ctx, m.GetConceptExecutionStartingRequest())
 	}
 	return err
 }

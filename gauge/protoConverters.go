@@ -103,6 +103,8 @@ func makeParameterCopy(parameter *gauge_messages.Parameter) *gauge_messages.Para
 		return &gauge_messages.Parameter{ParameterType: gauge_messages.Parameter_Special_String, Value: parameter.GetValue(), Name: parameter.GetName()}
 	case gauge_messages.Parameter_Special_Table:
 		return &gauge_messages.Parameter{ParameterType: gauge_messages.Parameter_Special_Table, Table: makeTableCopy(parameter.GetTable()), Name: parameter.GetName()}
+	case gauge_messages.Parameter_Multiline_String:
+		return &gauge_messages.Parameter{ParameterType: gauge_messages.Parameter_Multiline_String, Value: parameter.GetValue(), Name: parameter.GetName()}
 	}
 	return parameter
 }
@@ -144,6 +146,8 @@ func convertToProtoParameter(arg *StepArg) *gauge_messages.Parameter {
 		return &gauge_messages.Parameter{ParameterType: gauge_messages.Parameter_Special_String, Value: arg.Value, Name: arg.Name}
 	case SpecialTable:
 		return &gauge_messages.Parameter{ParameterType: gauge_messages.Parameter_Special_Table, Table: ConvertToProtoTable(&arg.Table), Name: arg.Name}
+	case MultilineString:
+		return &gauge_messages.Parameter{ParameterType: gauge_messages.Parameter_Multiline_String, Value: arg.Value, Name: arg.Name}
 	}
 	return nil
 }
@@ -172,14 +176,15 @@ func ConvertToProtoSuiteResult(suiteResult *result.SuiteResult) *gauge_messages.
 		Environment:             suiteResult.Environment,
 		Tags:                    suiteResult.Tags,
 		ProjectName:             suiteResult.ProjectName,
-		Timestamp:               suiteResult.Timestamp,
+		Timestamp:               suiteResult.Timestamp, //nolint:staticcheck
+		TimestampISO:            suiteResult.TimestampISO,
 		SpecsSkippedCount:       int32(suiteResult.SpecsSkippedCount),
 		PreHookMessages:         suiteResult.PreHookMessages,
 		PostHookMessages:        suiteResult.PostHookMessages,
 		PreHookScreenshotFiles:  suiteResult.PreHookScreenshotFiles,
 		PostHookScreenshotFiles: suiteResult.PostHookScreenshotFiles,
-		PreHookScreenshots:      suiteResult.PreHookScreenshots,
-		PostHookScreenshots:     suiteResult.PostHookScreenshots,
+		PreHookScreenshots:      suiteResult.PreHookScreenshots,  //nolint:staticcheck
+		PostHookScreenshots:     suiteResult.PostHookScreenshots, //nolint:staticcheck
 	}
 	return protoSuiteResult
 }
@@ -229,6 +234,7 @@ func convertToProtoSpecResult(specResult *result.SpecResult) *gauge_messages.Pro
 		ScenarioSkippedCount: int32(specResult.ScenarioSkippedCount),
 		Errors:               specResult.Errors,
 		Timestamp:            time.Now().Format(time.RFC3339),
+		TimestampISO:         time.Now().Format(time.RFC3339Nano),
 	}
 }
 
@@ -282,8 +288,8 @@ func NewSpecResult(specification *Specification) *result.SpecResult {
 func NewProtoScenario(scenario *Scenario) *gauge_messages.ProtoScenario {
 	return &gauge_messages.ProtoScenario{
 		ScenarioHeading: scenario.Heading.Value,
-		Failed:          false,
-		Skipped:         false,
+		Failed:          false, //nolint:staticcheck
+		Skipped:         false, //nolint:staticcheck
 		Tags:            getTags(scenario.Tags),
 		Contexts:        make([]*gauge_messages.ProtoItem, 0),
 		ExecutionTime:   0,

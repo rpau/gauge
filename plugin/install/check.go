@@ -8,6 +8,7 @@ package install
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"runtime/debug"
@@ -43,10 +44,10 @@ func PrintUpdateInfoWithDetails() {
 	updates := checkUpdates()
 	if len(updates) > 0 {
 		for _, update := range updates {
-			logger.Infof(true, fmt.Sprintf("%-10s\t\t%-10s\t%s", update.Name, update.CompatibleVersion, update.Message))
+			logger.Infof(true, "%-10s\t\t%-10s\t%s", update.Name, update.CompatibleVersion, update.Message)
 		}
 	} else {
-		logger.Infof(true, "No Updates available.")
+		logger.Info(true, "No Updates available.")
 	}
 }
 
@@ -76,7 +77,7 @@ func waitToPrint(messageChan chan string, printChan chan bool, message string, w
 	select {
 	case <-printChan:
 		if message != "" {
-			logger.Infof(true, message)
+			logger.Info(true, message)
 		}
 		wg.Done()
 	case message = <-messageChan:
@@ -149,7 +150,9 @@ var getLatestGaugeVersion = func(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(res.Body)
 
 	v, err := getGaugeVersionFromURL(res.Request.URL.String())
 	if err != nil {
@@ -159,7 +162,7 @@ var getLatestGaugeVersion = func(url string) (string, error) {
 }
 
 func getGaugeVersionFromURL(url string) (string, error) {
-	versionString := strings.Replace(url, gauge_releases_url, "", -1)
+	versionString := strings.ReplaceAll(url, gauge_releases_url, "")
 	reg, err := regexp.Compile(`tag/v(\d.*)`)
 	if err != nil {
 		return "", fmt.Errorf("unable to compile regex 'tag/v(\\d.*)': %s", err.Error())

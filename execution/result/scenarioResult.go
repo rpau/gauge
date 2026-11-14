@@ -24,12 +24,23 @@ func NewScenarioResult(sce *gauge_messages.ProtoScenario) *ScenarioResult {
 // SetFailure sets the scenarioResult as failed
 func (s ScenarioResult) SetFailure() {
 	s.ProtoScenario.ExecutionStatus = gauge_messages.ExecutionStatus_FAILED
-	s.ProtoScenario.Failed = true
 }
 
 // GetFailed returns the state of the scenario result
 func (s ScenarioResult) GetFailed() bool {
 	return s.ProtoScenario.GetExecutionStatus() == gauge_messages.ExecutionStatus_FAILED
+}
+
+func (s ScenarioResult) SetSkippedScenario() {
+	s.ProtoScenario.ExecutionStatus = gauge_messages.ExecutionStatus_SKIPPED
+}
+
+func (s ScenarioResult) GetSkippedScenario() bool {
+	return s.ProtoScenario.GetExecutionStatus() == gauge_messages.ExecutionStatus_SKIPPED
+}
+
+func (s ScenarioResult) GetTableDrivenScenario() bool {
+	return s.ScenarioDataTable != nil && len(s.ScenarioDataTable.Rows) > 0;
 }
 
 func (s ScenarioResult) AddItems(protoItems []*gauge_messages.ProtoItem) {

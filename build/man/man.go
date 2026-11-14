@@ -11,7 +11,6 @@ import (
 
 	"strings"
 
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -19,7 +18,7 @@ import (
 
 	"github.com/getgauge/common"
 	"github.com/getgauge/gauge/cmd"
-	blackfriday "github.com/russross/blackfriday/v2"
+	"github.com/russross/blackfriday/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -44,10 +43,10 @@ func main() {
 	}
 	texts := indentText(mdPath)
 	for _, t := range texts {
-        name := strings.TrimSuffix(t.name, filepath.Ext(t.name)) + ".html"
-		output := strings.Replace(html, "<!--CONTENT-->", string(blackfriday.Run([]byte(t.content))), -1)
+		name := strings.TrimSuffix(t.name, filepath.Ext(t.name)) + ".html"
+		output := strings.ReplaceAll(html, "<!--CONTENT-->", string(blackfriday.Run([]byte(t.content))))
 		p := filepath.Join(htmlPath, name)
-		err := ioutil.WriteFile(p, []byte(output), 0644)
+		err := os.WriteFile(p, []byte(output), 0644)
 		if err != nil {
 			log.Fatalf("Unable to write file %s: %s", p, err.Error())
 		}
@@ -77,7 +76,7 @@ func setupCmd() *cobra.Command {
 func indentText(p string) (texts []text) {
 	err := filepath.Walk(p, func(path string, info os.FileInfo, err error) error {
 		if strings.HasSuffix(info.Name(), ".md") {
-			bytes, err := ioutil.ReadFile(path)
+			bytes, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
@@ -87,7 +86,7 @@ func indentText(p string) (texts []text) {
 				if strings.HasPrefix(tLine, "-") && len(tLine) > maxLineLength {
 					lines = append(lines, indentFlag(l, tLine)...)
 				} else {
-					lines = append(lines, strings.Replace(l, ".md", ".html", -1))
+					lines = append(lines, strings.ReplaceAll(l, ".md", ".html"))
 				}
 			}
 			texts = append(texts, text{name: info.Name(), content: strings.Join(lines, "\n")})
@@ -122,7 +121,7 @@ func indentFlag(line, tLine string) (lines []string) {
 		if len(dWords) == 0 {
 			continue
 		}
-		prefix := strings.Replace(line, desc, strings.Join(dWords[:till], " "), -1)
+		prefix := strings.ReplaceAll(line, desc, strings.Join(dWords[:till], " "))
 		if i != 0 {
 			prefix = strings.Repeat(" ", strings.Index(line, desc)) + strings.Join(dWords[:till], " ")
 		}

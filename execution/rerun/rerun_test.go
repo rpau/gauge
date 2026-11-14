@@ -7,7 +7,6 @@
 package rerun
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,10 +44,10 @@ func (s *MySuite) TestIfFailedFileIsCreated(c *C) {
 	c.Assert(common.FileExists(file), Equals, true)
 	expected := msg
 
-	content, _ := ioutil.ReadFile(file)
+	content, _ := os.ReadFile(file)
 
 	c.Assert(string(content), Equals, expected)
-	os.RemoveAll(filepath.Join(config.ProjectRoot, common.DotGauge))
+	_ = os.RemoveAll(filepath.Join(config.ProjectRoot, common.DotGauge))
 }
 
 func (s *MySuite) TestGetScenarioFailedMetadata(c *C) {
@@ -61,6 +60,22 @@ func (s *MySuite) TestGetScenarioFailedMetadata(c *C) {
 
 	c.Assert(len(failedMeta.failedItemsMap[spec1Abs]), Equals, 1)
 	c.Assert(failedMeta.failedItemsMap[spec1Abs][spec1Rel+":2"], Equals, true)
+}
+
+func (s *MySuite) TestScenarioPassingOnRetryRemovesFailedMetadata(c *C) {
+	spec1Rel := filepath.Join("specs", "example1.spec")
+	spec1Abs := filepath.Join(config.ProjectRoot, spec1Rel)
+	sce := &gauge.Scenario{Span: &gauge.Span{Start: 2}}
+	execInfo := &gauge_messages.ExecutionInfo{CurrentSpec: &gauge_messages.SpecInfo{FileName: spec1Abs}}
+	failedResult := &result.ScenarioResult{ProtoScenario: &gauge_messages.ProtoScenario{ExecutionStatus: gauge_messages.ExecutionStatus_FAILED}}
+	passedResult := &result.ScenarioResult{ProtoScenario: &gauge_messages.ProtoScenario{ExecutionStatus: gauge_messages.ExecutionStatus_PASSED}}
+
+	prepareScenarioFailedMetadata(failedResult, sce, execInfo)
+	c.Assert(failedMeta.failedItemsMap[spec1Abs][spec1Rel+":2"], Equals, true)
+
+	prepareScenarioFailedMetadata(passedResult, sce, execInfo)
+	_, exists := failedMeta.failedItemsMap[spec1Abs]
+	c.Assert(exists, Equals, false)
 }
 
 func (s *MySuite) TestAddSpecPreHookFailedMetadata(c *C) {

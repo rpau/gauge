@@ -41,12 +41,14 @@ func (e *stepExecutor) executeStep(step *gauge.Step, protoStep *gauge_messages.P
 		executeStepMessage := &gauge_messages.Message{MessageType: gauge_messages.Message_ExecuteStep, ExecuteStepRequest: stepRequest}
 		stepExecutionStatus := e.runner.ExecuteAndGetStatus(executeStepMessage)
 		stepExecutionStatus.Message = append(stepResult.ProtoStepExecResult().GetExecutionResult().Message, stepExecutionStatus.Message...)
-		stepExecutionStatus.Screenshots = append(stepResult.ProtoStepExecResult().GetExecutionResult().Screenshots, stepExecutionStatus.Screenshots...)
 		if stepExecutionStatus.GetFailed() {
 			e.currentExecutionInfo.CurrentStep.ErrorMessage = stepExecutionStatus.GetErrorMessage()
 			e.currentExecutionInfo.CurrentStep.StackTrace = stepExecutionStatus.GetStackTrace()
 			setStepFailure(e.currentExecutionInfo)
 			stepResult.SetStepFailure()
+		} else if stepResult.GetSkippedScenario() {
+			e.currentExecutionInfo.CurrentStep.ErrorMessage = stepExecutionStatus.GetErrorMessage()
+			e.currentExecutionInfo.CurrentStep.StackTrace = stepExecutionStatus.GetStackTrace()
 		}
 		stepResult.SetProtoExecResult(stepExecutionStatus)
 	}
@@ -72,7 +74,6 @@ func (e *stepExecutor) notifyBeforeStepHook(stepResult *result.StepResult) {
 	res := executeHook(m, stepResult, e.runner)
 	stepResult.ProtoStep.PreHookMessages = res.Message
 	stepResult.ProtoStep.PreHookScreenshotFiles = res.ScreenshotFiles
-	stepResult.ProtoStep.PreHookScreenshots = res.Screenshots
 	if res.GetFailed() {
 		setStepFailure(e.currentExecutionInfo)
 		handleHookFailure(stepResult, res, result.AddPreHook)
@@ -90,7 +91,6 @@ func (e *stepExecutor) notifyAfterStepHook(stepResult *result.StepResult) {
 	res := executeHook(m, stepResult, e.runner)
 	stepResult.ProtoStep.PostHookMessages = res.Message
 	stepResult.ProtoStep.PostHookScreenshotFiles = res.ScreenshotFiles
-	stepResult.ProtoStep.PostHookScreenshots = res.Screenshots
 	if res.GetFailed() {
 		setStepFailure(e.currentExecutionInfo)
 		handleHookFailure(stepResult, res, result.AddPostHook)
@@ -98,3 +98,5 @@ func (e *stepExecutor) notifyAfterStepHook(stepResult *result.StepResult) {
 	m.StepExecutionEndingRequest.StepResult = gauge.ConvertToProtoStepResult(stepResult)
 	e.pluginHandler.NotifyPlugins(m)
 }
+
+

@@ -224,14 +224,14 @@ func (c *jsonConsole) Write(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		fmt.Fprintf(c.writer, "%s\n", string(t))
+		_, _ = fmt.Fprintf(c.writer, "%s\n", t)
 	}
 	return len(b), nil
 }
 
 func (c *jsonConsole) write(e executionEvent) {
 	b, _ := json.Marshal(e)
-	fmt.Fprint(c.writer, string(b)+newline)
+	_, _ = fmt.Fprint(c.writer, string(b)+newline)
 }
 
 func getIDWithRow(name string, scenarios []*gauge.Scenario, isDataTable bool) string {
@@ -311,6 +311,12 @@ func getLineNo(stepCache map[*gm.ScenarioInfo][]*stepInfo, step *gm.ProtoStep, i
 }
 
 func getTable(scenario *gauge.Scenario) *tableInfo {
+	if scenario.ScenarioDataTableRow.IsInitialized() {
+		return &tableInfo{
+			Text: formatter.FormatTable(&scenario.ScenarioDataTableRow),
+			Row:  scenario.ScenarioDataTableRowIndex,
+		}
+	}
 	if scenario.SpecDataTableRow.IsInitialized() {
 		return &tableInfo{
 			Text: formatter.FormatTable(&scenario.SpecDataTableRow),

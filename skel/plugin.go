@@ -7,9 +7,13 @@
 package skel
 
 import (
+	"github.com/getgauge/gauge/env"
 	"github.com/getgauge/gauge/logger"
 	"github.com/getgauge/gauge/plugin"
 	"github.com/getgauge/gauge/plugin/install"
+	"os"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -17,13 +21,15 @@ const (
 	html       = "html-report"
 )
 
-var requiredPlugins = []string{screenshot, html}
-
 var SetupPlugins = func(silent bool) {
 	installPlugins(getPluginsToInstall(), silent)
 }
 
 func getPluginsToInstall() (plugins []string) {
+	requiredPlugins := []string{html}
+	if screenshotEnabled, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(env.ScreenshotOnFailure))); err == nil && screenshotEnabled {
+		requiredPlugins = append(requiredPlugins, screenshot)
+	}
 	for _, p := range requiredPlugins {
 		if !plugin.IsPluginInstalled(p, "") {
 			plugins = append(plugins, p)
@@ -34,7 +40,7 @@ func getPluginsToInstall() (plugins []string) {
 
 func installPlugins(plugins []string, silent bool) {
 	if len(plugins) > 0 {
-		logger.Infof(true, "Installing required plugins.")
+		logger.Info(true, "Installing required plugins.")
 	}
 	for _, p := range plugins {
 		installPlugin(p, silent)
@@ -45,7 +51,7 @@ func installPlugin(name string, silent bool) {
 	logger.Debugf(true, "Installing plugin '%s'", name)
 	res := install.Plugin(name, "", silent)
 	if res.Error != nil {
-		logger.Debugf(true, res.Error.Error())
+		logger.Debug(true, res.Error.Error())
 	} else if res.Version != "" {
 		logger.Infof(true, "Successfully installed plugin '%s' version %s", name, res.Version)
 	} else {

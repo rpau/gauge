@@ -60,7 +60,7 @@ func (p *properties) Format(f Formatter) (string, error) {
 
 func (p *properties) String() (string, error) {
 	var buffer strings.Builder
-	_, err := buffer.WriteString(fmt.Sprintf("# Version %s\n# %s\n", version.FullVersion(), comment))
+	_, err := fmt.Fprintf(&buffer, "# Version %s\n# %s\n", version.FullVersion(), comment)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +71,7 @@ func (p *properties) String() (string, error) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		v := p.p[k]
-		_, err := buffer.WriteString(fmt.Sprintf("\n# %s\n%s = %s\n", v.Description, v.Key, v.Value))
+		_, err := fmt.Fprintf(&buffer, "\n# %s\n%s = %s\n", v.Description, v.Key, v.Value)
 		if err != nil {
 			return "", err
 		}
@@ -97,6 +97,7 @@ func defaults() *properties {
 		runnerRequestTimeout:    NewProperty(runnerRequestTimeout, "30000", "Timeout in milliseconds for requests from the language runner."),
 		ideRequestTimeout:       NewProperty(ideRequestTimeout, "30000", "Timeout in milliseconds for requests from runner when invoked for ide."),
 		checkUpdates:            NewProperty(checkUpdates, "true", "Allow Gauge and its plugin updates to be notified."),
+		logMaxBackupsCount:      NewProperty(logMaxBackupsCount, "3", "The maximum number of backup log files to retain."),
 	}}
 }
 
@@ -197,7 +198,9 @@ func Write(text, file string) error {
 			return err
 		}
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
 	_, err = f.Write([]byte(text))
 	return err
 }
@@ -220,7 +223,9 @@ func GaugeVersionInPropertiesFile(name string) (*version.Version, error) {
 	if err != nil {
 		return v, err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
 	r := bufio.NewReader(f)
 	l, _, err := r.ReadLine()
 	if err != nil {

@@ -12,11 +12,17 @@ download() {
     tmp="$(ensure mktemp -d)"
     ensure cd "$tmp"
 
-    # Download latest Gauge zip installer
-    url="$(ensure curl -Ss https://api.github.com/repos/getgauge/gauge/releases/latest \
-    | grep "browser_download_url.*$OS.$ARCH.zip" \
-    | cut -d : -f 2,3 \
-    | tr -d \")"
+    # set api url
+    if [ $VERSION = "latest" ]; then
+        api_url="https://api.github.com/repos/getgauge/gauge/releases/latest"
+    else
+        api_url="https://api.github.com/repos/getgauge/gauge/releases/tags/$VERSION"
+    fi
+    # set download url
+    url="$(ensure curl -Ss $api_url \
+        | grep "browser_download_url.*$OS.$ARCH.zip" \
+        | cut -d : -f 2,3 \
+        | tr -d \")"
 
     say "Downloading binary from URL:$url"
     ensure curl -L -o gauge.zip $url
@@ -93,6 +99,9 @@ set_os_architecture() {
         x86_64 | x86-64 | x64 | amd64)
             local _cputype=x86_64
             ;;
+        arm64 | aarch64)
+            local _cputype=arm64
+            ;;
         *)
             err "Unknown CPU type: $_cputype"
             ;;
@@ -106,6 +115,7 @@ set_os_architecture() {
 
 handle_cmd_line_args() {
     LOCATION="/usr/local/bin"
+    VERSION="latest"
     for _arg in "$@"; do
         case "${_arg%%=*}" in
             --verbose)
@@ -114,6 +124,11 @@ handle_cmd_line_args() {
             --location)
                 if is_value_arg "$_arg" "location"; then
                     LOCATION="$(get_value_arg "$_arg")"
+                fi
+                ;;
+            --version)
+                if is_value_arg "$_arg" "version"; then
+                    VERSION="$(get_value_arg "$_arg")"
                 fi
                 ;;
         esac

@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -71,6 +70,16 @@ func (m *failedMetadata) addFailedItem(itemName string, item string) {
 	m.failedItemsMap[itemName][item] = true
 }
 
+func (m *failedMetadata) removeFailedItem(itemName string, item string) {
+	if _, ok := m.failedItemsMap[itemName]; !ok {
+		return
+	}
+	delete(m.failedItemsMap[itemName], item)
+	if len(m.failedItemsMap[itemName]) == 0 {
+		delete(m.failedItemsMap, itemName)
+	}
+}
+
 // ListenFailedScenarios listens to execution events and writes the failed scenarios to JSON file
 func ListenFailedScenarios(wg *sync.WaitGroup, specDirs []string) {
 	ch := make(chan event.ExecutionEvent)
@@ -98,11 +107,16 @@ func ListenFailedScenarios(wg *sync.WaitGroup, specDirs []string) {
 }
 
 func prepareScenarioFailedMetadata(res *result.ScenarioResult, sce *gauge.Scenario, executionInfo *gauge_messages.ExecutionInfo) {
+	specPath := executionInfo.GetCurrentSpec().GetFileName()
+	failedScenario := util.RelPathToProjectRoot(specPath)
+	scenarioRef := fmt.Sprintf("%s:%v", failedScenario, sce.Span.Start)
 	if res.GetFailed() {
-		specPath := executionInfo.GetCurrentSpec().GetFileName()
-		failedScenario := util.RelPathToProjectRoot(specPath)
-		failedMeta.addFailedItem(specPath, fmt.Sprintf("%s:%v", failedScenario, sce.Span.Start))
+		failedMeta.addFailedItem(specPath, scenarioRef)
+		return
 	}
+	// A scenario can emit multiple ScenarioEnd events when retries are enabled.
+	// If a later retry passes, remove any failed entry captured from earlier attempts.
+	failedMeta.removeFailedItem(specPath, scenarioRef)
 }
 
 func addSpecFailedMetadata(res result.Result, args []string) {
@@ -134,7 +148,7 @@ func writeFailedMeta(contents string) {
 	if err := os.MkdirAll(dotGaugeDir, common.NewDirectoryPermissions); err != nil {
 		logger.Fatalf(true, "Failed to create directory in %s. Reason: %s", dotGaugeDir, err.Error())
 	}
-	err := ioutil.WriteFile(failuresFile, []byte(contents), common.NewFilePermissions)
+	err := os.WriteFile(failuresFile, []byte(contents), common.NewFilePermissions)
 	if err != nil {
 		logger.Fatalf(true, "Failed to write to %s. Reason: %s", failuresFile, err.Error())
 	}
@@ -209,7 +223,7 @@ var WritePrevArgs = func(cmdArgs []string) {
 	if err = os.MkdirAll(dotGaugeDir, common.NewDirectoryPermissions); err != nil {
 		logger.Fatalf(true, "Failed to create directory in %s. Reason: %s", dotGaugeDir, err.Error())
 	}
-	err = ioutil.WriteFile(prevCmdFile, b, common.NewFilePermissions)
+	err = os.WriteFile(prevCmdFile, b, common.NewFilePermissions)
 	if err != nil {
 		logger.Fatalf(true, "Failed to write to %s. Reason: %s", prevCmdFile, err.Error())
 	}

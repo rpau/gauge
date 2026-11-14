@@ -5,14 +5,14 @@
  *----------------------------------------------------------------*/
 
 /*
-   Given old and new step gives the filenames of specification, concepts and files in code changed.
+	   Given old and new step gives the filenames of specification, concepts and files in code changed.
 
-   Refactoring Flow:
-	- Refactor specs and concepts in memory
-	- Checks if it is a concept or not
-	- In case of concept - writes to file and skips the runner
-	- If its not a concept (its a step) - need to know the text, so makes a call to runner to get the text(step name)
-	- Refactors the text(changes param positions ect) and sends it to runner to refactor implementations.
+	   Refactoring Flow:
+		- Refactor specs and concepts in memory
+		- Checks if it is a concept or not
+		- In case of concept - writes to file and skips the runner
+		- If its not a concept (its a step) - need to know the text, so makes a call to runner to get the text(step name)
+		- Refactors the text(changes param positions ect) and sends it to runner to refactor implementations.
 */
 package refactor
 
@@ -103,11 +103,13 @@ func (refactoringResult *refactoringResult) WriteToDisk() {
 	if !refactoringResult.Success {
 		return
 	}
+	// fileChange.FileContent need not be deprecated. To save the refactored file, it is much simpler and less error prone
+	// to replace the file with new content, rather than parsing again and replacing specific lines.
 	for _, fileChange := range refactoringResult.SpecsChanged {
-		util.SaveFile(fileChange.FileName, fileChange.FileContent, true)
+		util.SaveFile(fileChange.FileName, fileChange.FileContent, true) //nolint:staticcheck
 	}
 	for _, fileChange := range refactoringResult.ConceptsChanged {
-		util.SaveFile(fileChange.FileName, fileChange.FileContent, true)
+		util.SaveFile(fileChange.FileName, fileChange.FileContent, true) //nolint:staticcheck
 	}
 }
 
@@ -189,7 +191,7 @@ func (agent *rephraseRefactorer) getRefactoringChangesFor(specs []*gauge.Specifi
 func (agent *rephraseRefactorer) refactorStepImplementations(shouldSaveChanges bool) *refactoringResult {
 	result := &refactoringResult{Success: false, Errors: make([]string, 0), Warnings: make([]string, 0)}
 	if !agent.isConcept {
-		stepName, err, warning := agent.getStepNameFromRunner(agent.runner)
+		stepName, warning, err := agent.getStepNameFromRunner(agent.runner)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			return result
@@ -298,7 +300,7 @@ func (agent *rephraseRefactorer) sendRefactorRequest(testRunner runner.Runner, r
 	return response.GetRefactorResponse()
 }
 
-//Todo: Check for inline tables
+// Todo: Check for inline tables
 func (agent *rephraseRefactorer) createRefactorRequest(stepName string, shouldSaveChanges bool) (*gauge_messages.Message, error) {
 	oldStepValue, err := agent.getStepValueFor(agent.oldStep, stepName)
 	if err != nil {
@@ -336,21 +338,21 @@ func (agent *rephraseRefactorer) generateNewStepName(args []string, orderMap map
 	return parser.ConvertToStepText(agent.newStep.Fragments)
 }
 
-func (agent *rephraseRefactorer) getStepNameFromRunner(r runner.Runner) (string, error, *parser.Warning) {
+func (agent *rephraseRefactorer) getStepNameFromRunner(r runner.Runner) (string, *parser.Warning, error) {
 	stepNameMessage := &gauge_messages.Message{MessageType: gauge_messages.Message_StepNameRequest, StepNameRequest: &gauge_messages.StepNameRequest{StepValue: agent.oldStep.Value}}
 	responseMessage, err := r.ExecuteMessageWithTimeout(stepNameMessage)
 
 	if err != nil {
-		return "", err, nil
+		return "", nil, err
 	}
 	if !(responseMessage.GetStepNameResponse().GetIsStepPresent()) {
-		return "", nil, &parser.Warning{Message: fmt.Sprintf("Step implementation not found: %s", agent.oldStep.LineText)}
+		return "", &parser.Warning{Message: fmt.Sprintf("Step implementation not found: %s", agent.oldStep.LineText)}, nil
 	}
 	if responseMessage.GetStepNameResponse().GetHasAlias() {
-		return "", fmt.Errorf("steps with aliases : '%s' cannot be refactored", strings.Join(responseMessage.GetStepNameResponse().GetStepName(), "', '")), nil
+		return "", nil, fmt.Errorf("steps with aliases : '%s' cannot be refactored", strings.Join(responseMessage.GetStepNameResponse().GetStepName(), "', '"))
 	}
 	if responseMessage.GetStepNameResponse().GetIsExternal() {
-		return "", fmt.Errorf("external step: Cannot refactor '%s' is in external project or library", strings.Join(responseMessage.GetStepNameResponse().GetStepName(), "', '")), nil
+		return "", nil, fmt.Errorf("external step: Cannot refactor '%s' is in external project or library", strings.Join(responseMessage.GetStepNameResponse().GetStepName(), "', '"))
 	}
 	return responseMessage.GetStepNameResponse().GetStepName()[0], nil, nil
 }
@@ -372,7 +374,7 @@ func createDiffs(diffs []*gauge.StepDiff) []*gauge_messages.TextDiff {
 	for _, diff := range diffs {
 		newtext := strings.TrimSpace(formatter.FormatStep(diff.NewStep))
 		if diff.IsConcept && !diff.OldStep.InConcept() {
-			newtext = strings.Replace(newtext, "*", "#", -1)
+			newtext = strings.ReplaceAll(newtext, "*", "#")
 		}
 		oldFragments := util.GetLinesFromText(strings.TrimSpace(formatter.FormatStep(&diff.OldStep)))
 		d := &gauge_messages.TextDiff{
@@ -395,12 +397,12 @@ func getFileChanges(specs []*gauge.Specification, conceptDictionary *gauge.Conce
 	for _, spec := range specs {
 		if stepDiffs, ok := specsRefactored[spec]; ok {
 			formatted := formatter.FormatSpecification(spec)
-			specFiles = append(specFiles, &gauge_messages.FileChanges{FileName: spec.FileName, FileContent: formatted, Diffs: createDiffs(stepDiffs)})
+			specFiles = append(specFiles, &gauge_messages.FileChanges{FileName: spec.FileName, FileContent: formatted, Diffs: createDiffs(stepDiffs)}) //nolint:staticcheck
 		}
 	}
 	conceptMap := formatter.FormatConcepts(conceptDictionary)
 	for file, diffs := range conceptsRefactored {
-		conceptFiles = append(conceptFiles, &gauge_messages.FileChanges{FileName: file, FileContent: conceptMap[file], Diffs: createDiffs(diffs)})
+		conceptFiles = append(conceptFiles, &gauge_messages.FileChanges{FileName: file, FileContent: conceptMap[file], Diffs: createDiffs(diffs)}) //nolint:staticcheck
 	}
 	return specFiles, conceptFiles
 }

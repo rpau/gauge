@@ -7,6 +7,7 @@
 package env
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,12 +20,14 @@ import (
 	"github.com/getgauge/gauge/config"
 	"github.com/getgauge/gauge/logger"
 	"github.com/getgauge/gauge/manifest"
-	properties "github.com/magiconair/properties"
+	"github.com/magiconair/properties"
 )
 
 const (
 	// SpecsDir holds the location of spec files
 	SpecsDir = "gauge_specs_dir"
+	// ConceptsDir holds the location of concept files
+	ConceptsDir = "gauge_concepts_dir"
 	// GaugeReportsDir holds the location of reports
 	GaugeReportsDir = "gauge_reports_dir"
 	// GaugeEnvironment holds the name of the current environment
@@ -41,7 +44,6 @@ const (
 	CsvDelimiter                   = "csv_delimiter"
 	allowCaseSensitiveTags         = "allow_case_sensitive_tags"
 	allowMultilineStep             = "allow_multiline_step"
-	allowScenarioDatatable         = "allow_scenario_datatable"
 	allowFilteredParallelExecution = "allow_filtered_parallel_execution"
 	enableMultithreading           = "enable_multithreading"
 	// GaugeScreenshotsDir holds the location of screenshots dir
@@ -114,7 +116,6 @@ func loadDefaultEnvVars() {
 	addEnvVar(saveExecutionResult, "false")
 	addEnvVar(CsvDelimiter, ",")
 	addEnvVar(allowMultilineStep, "false")
-	addEnvVar(allowScenarioDatatable, "false")
 	addEnvVar(allowFilteredParallelExecution, "false")
 	defaultScreenshotDir := filepath.Join(config.ProjectRoot, common.DotGauge, "screenshots")
 	addEnvVar(GaugeScreenshotsDir, defaultScreenshotDir)
@@ -234,7 +235,7 @@ func isCircular(key, value string) error {
 		}
 		_, err := properties.LoadString(fmt.Sprintf("%s=%s", key, value))
 		if err != nil {
-			return fmt.Errorf(err.Error())
+			return errors.New(err.Error())
 		}
 	}
 	return nil
@@ -302,11 +303,6 @@ func convertToBool(property string, defaultValue bool) bool {
 // AllowFilteredParallelExecution - feature toggle for filtered parallel execution
 var AllowFilteredParallelExecution = func() bool {
 	return convertToBool(allowFilteredParallelExecution, false)
-}
-
-// AllowScenarioDatatable -feature toggle for datatables in scenario
-var AllowScenarioDatatable = func() bool {
-	return convertToBool(allowScenarioDatatable, false)
 }
 
 // AllowMultiLineStep - feature toggle for newline in step text

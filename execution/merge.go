@@ -23,6 +23,7 @@ func mergeDataTableSpecResults(sResult *result.SuiteResult) *result.SuiteResult 
 	suiteRes.PreSuite = sResult.PreSuite
 	suiteRes.UnhandledErrors = sResult.UnhandledErrors
 	suiteRes.Timestamp = sResult.Timestamp
+	suiteRes.TimestampISO = sResult.TimestampISO
 	suiteRes.ProjectName = sResult.ProjectName
 	suiteRes.Environment = sResult.Environment
 	suiteRes.Tags = sResult.Tags
@@ -90,12 +91,14 @@ func mergeResults(results []*result.SpecResult) *result.SpecResult {
 				scnResults = append(scnResults, item)
 				modifySpecStats(item.Scenario, specResult)
 			case m.ProtoItem_TableDrivenScenario:
-				tableRowIndex := item.TableDrivenScenario.TableRowIndex
-				if _, ok := includedTableRowIndexMap[tableRowIndex]; !ok {
-					table.Rows = append(table.Rows, tableRows...)
-					includedTableRowIndexMap[tableRowIndex] = true
+				// A TableRowIndex of -1 means the scenario did not run for a spec table row.
+				if tableRowIndex := item.TableDrivenScenario.TableRowIndex; tableRowIndex >= 0 {
+					if _, ok := includedTableRowIndexMap[tableRowIndex]; !ok {
+						table.Rows = append(table.Rows, tableRows...)
+						includedTableRowIndexMap[tableRowIndex] = true
+					}
+					item.TableDrivenScenario.TableRowIndex = int32(len(table.Rows) - 1)
 				}
-				item.TableDrivenScenario.TableRowIndex = int32(len(table.Rows) - 1)
 				scnResults = append(scnResults, item)
 				heading := item.TableDrivenScenario.Scenario.ScenarioHeading
 				dataTableScnResults[heading] = append(dataTableScnResults[heading], item.TableDrivenScenario)

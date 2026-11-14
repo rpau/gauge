@@ -7,7 +7,6 @@
 package formatter
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"sort"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/getgauge/common"
 	"github.com/getgauge/gauge-proto/go/gauge_messages"
+	"github.com/getgauge/gauge/config"
 	"github.com/getgauge/gauge/gauge"
 	"github.com/getgauge/gauge/logger"
 	"github.com/getgauge/gauge/parser"
@@ -36,7 +36,7 @@ func FormatSpecFiles(specFiles ...string) []*parser.ParseResult {
 			continue
 		}
 		if err := formatAndSave(spec); err != nil {
-			result.ParseErrors = []parser.ParseError{parser.ParseError{Message: err.Error()}}
+			result.ParseErrors = []parser.ParseError{{Message: err.Error()}}
 		} else {
 			logger.Debugf(true, "Successfully formatted spec: %s", util.RelPathToProjectRoot(spec.FileName))
 		}
@@ -62,15 +62,19 @@ func FormatStep(step *gauge.Step) string {
 		argument := step.Args[i]
 		var formattedArg string
 		stripBeforeArg := ""
-		if argument.ArgType == gauge.TableArg {
+		switch argument.ArgType {
+		case gauge.TableArg:
 			formattedArg = fmt.Sprintf("\n%s", FormatTable(&argument.Table))
 			stripBeforeArg = " "
-		} else if argument.ArgType == gauge.Dynamic || argument.ArgType == gauge.SpecialString || argument.ArgType == gauge.SpecialTable {
+		case gauge.Dynamic, gauge.SpecialString, gauge.SpecialTable:
 			formattedArg = fmt.Sprintf("<%s>", parser.GetUnescapedString(argument.Name))
-		} else {
+		case gauge.MultilineString:
+			formattedArg = fmt.Sprintf("\n\"\"\"\n%s\n\"\"\"\n", argument.Value)
+			stripBeforeArg = " "
+		default:
 			formattedArg = fmt.Sprintf("\"%s\"", parser.GetUnescapedString(argument.Value))
 		}
-		text = strings.Replace(text, stripBeforeArg + gauge.ParameterPlaceholder, formattedArg, 1)
+		text = strings.Replace(text, stripBeforeArg+gauge.ParameterPlaceholder, formattedArg, 1)
 	}
 	stepText := ""
 	if strings.HasSuffix(text, "\n") {
@@ -122,30 +126,32 @@ func FormatTable(table *gauge.Table) string {
 		columnToWidthMap[i] = findLongestCellWidth(cells, len(header))
 	}
 
-	var tableStringBuffer bytes.Buffer
+	var tableStringBuffer strings.Builder
 
-	tableStringBuffer.WriteString("\n")
+	if !config.CurrentGaugeSettings().Format.SkipEmptyLineInsertions {
+		tableStringBuffer.WriteString("\n")
+	}
 
-	tableStringBuffer.WriteString(fmt.Sprintf("%s|", getRepeatedChars(" ", tableLeftSpacing)))
+	_, _ = fmt.Fprintf(&tableStringBuffer, "%s|", getRepeatedChars(" ", tableLeftSpacing))
 	for i, header := range table.Headers {
 		width := columnToWidthMap[i]
-		tableStringBuffer.WriteString(fmt.Sprintf("%s|", addPaddingToCell(header, width)))
+		_, _ = fmt.Fprintf(&tableStringBuffer, "%s|", addPaddingToCell(header, width))
 	}
 
 	tableStringBuffer.WriteString("\n")
-	tableStringBuffer.WriteString(fmt.Sprintf("%s|", getRepeatedChars(" ", tableLeftSpacing)))
+	_, _ = fmt.Fprintf(&tableStringBuffer, "%s|", getRepeatedChars(" ", tableLeftSpacing))
 	for i := range table.Headers {
 		width := columnToWidthMap[i]
 		cell := getRepeatedChars("-", width)
-		tableStringBuffer.WriteString(fmt.Sprintf("%s|", addPaddingToCell(cell, width)))
+		_, _ = fmt.Fprintf(&tableStringBuffer, "%s|", addPaddingToCell(cell, width))
 	}
 
 	tableStringBuffer.WriteString("\n")
 	for _, row := range table.Rows() {
-		tableStringBuffer.WriteString(fmt.Sprintf("%s|", getRepeatedChars(" ", tableLeftSpacing)))
+		_, _ = fmt.Fprintf(&tableStringBuffer, "%s|", getRepeatedChars(" ", tableLeftSpacing))
 		for i, cell := range row {
 			width := columnToWidthMap[i]
-			tableStringBuffer.WriteString(fmt.Sprintf("%s|", addPaddingToCell(cell, width)))
+			_, _ = fmt.Fprintf(&tableStringBuffer, "%s|", addPaddingToCell(cell, width))
 		}
 		tableStringBuffer.WriteString("\n")
 	}
@@ -181,7 +187,7 @@ func FormatTags(tags *gauge.Tags) string {
 	if tags == nil || len(tags.RawValues) == 0 {
 		return ""
 	}
-	var b bytes.Buffer
+	var b strings.Builder
 	b.WriteString("tags: ")
 	for i, tag := range tags.RawValues {
 		for j, tagString := range tag {
@@ -202,7 +208,7 @@ func formatExternalDataTable(dataTable *gauge.DataTable) string {
 	if dataTable == nil || len(dataTable.Value) == 0 {
 		return ""
 	}
-	var b bytes.Buffer
+	var b strings.Builder
 	b.WriteString(dataTable.Value)
 	b.WriteString("\n")
 	return b.String()
@@ -217,7 +223,7 @@ func formatAndSave(spec *gauge.Specification) error {
 }
 
 func FormatSpecification(specification *gauge.Specification) string {
-	var formattedSpec bytes.Buffer
+	var formattedSpec strings.Builder
 	queue := &gauge.ItemQueue{Items: specification.AllItems()}
 	formatter := &formatter{buffer: formattedSpec, itemQueue: queue}
 	specification.Traverse(formatter, queue)
@@ -286,5 +292,27 @@ func FormatSpecFilesIn(filesLocation string) {
 	parseResults := FormatSpecFiles(specFiles...)
 	if parser.HandleParseResult(parseResults...) {
 		os.Exit(1)
+	}
+}
+
+func FormatConceptFilesIn(filesLocation string) {
+	conceptFiles := util.FindConceptFiles([]string{filesLocation})
+	conceptsDictionary := gauge.NewConceptDictionary()
+	if _, errs, e := parser.AddConcepts(conceptFiles, conceptsDictionary); len(errs) > 0 {
+		for _, err := range errs {
+			logger.Errorf(false, "Concept parse failure: %s %s", conceptFiles[0], err)
+		}
+		if e != nil {
+			logger.Errorf(false, "Concept failure: %s %s", conceptFiles[0], e)
+			os.Exit(1)
+		}
+	}
+	conceptMap := FormatConcepts(conceptsDictionary)
+	for file, formatted := range conceptMap {
+		e := common.SaveFile(file, formatted, true)
+		if e != nil {
+			logger.Errorf(false, "Concept file save failure: %s", e)
+			os.Exit(1)
+		}
 	}
 }

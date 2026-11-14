@@ -3,10 +3,11 @@
   "description": "npm wrapper for installing gauge command line",
   "scripts": {
     "install": "node ./src/index.js",
-    "test": "mocha"
+    "test": "mocha",
+    "prepack": "git restore bin/gauge"
   },
   "bin": {
-    "gauge": "./bin/gauge"
+    "gauge": "bin/gauge"
   },
   "repository": {
     "type": "git",
@@ -24,11 +25,11 @@
   },
   "homepage": "https://github.com/getgauge/gauge#readme",
   "devDependencies": {
-    "chai": "^4.1.2",
-    "mocha": "^5.2.0",
-    "sinon": "^6.2.0"
+    "chai": "^6.3.0",
+    "mocha": "^12.0.3",
+    "sinon": "^22.1.0"
   },
   "dependencies": {
-    "unzipper": "^0.9.3"
+    "adm-zip": "^0.6.1"
   }
 }

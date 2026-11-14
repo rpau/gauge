@@ -7,8 +7,8 @@
 package parser
 
 import (
-	"github.com/getgauge/gauge/env"
 	"github.com/getgauge/gauge/gauge"
+	"github.com/getgauge/gauge/logger"
 )
 
 // GetSpecsForDataTableRows creates a spec for each data table row
@@ -23,17 +23,18 @@ func GetSpecsForDataTableRows(s []*gauge.Specification, errMap *gauge.BuildError
 				})
 				if len(tableRelatedScenarios) > 0 {
 					s := createSpecsForTableRows(spec, tableRelatedScenarios, errMap)
-					s[0].Scenarios = append(s[0].Scenarios, nonTableRelatedScenarios...)
-					for _, scn := range nonTableRelatedScenarios { // nolint
+					copiedNonTableScenarios := copyScenarios(nonTableRelatedScenarios, gauge.Table{}, -1, errMap)
+					s[0].Scenarios = append(s[0].Scenarios, copiedNonTableScenarios...)
+					for _, scn := range copiedNonTableScenarios { // nolint
 						s[0].Items = append(s[0].Items, scn)
 					}
 					specs = append(specs, s...)
 				} else {
-					specs = append(specs, createSpec(copyScenarios(nonTableRelatedScenarios, gauge.Table{}, 0, errMap), &gauge.Table{}, spec, errMap))
+					specs = append(specs, createSpec(copyScenarios(nonTableRelatedScenarios, gauge.Table{}, -1, errMap), &gauge.Table{}, spec, errMap))
 				}
 			}
 		} else {
-			specs = append(specs, createSpec(copyScenarios(spec.Scenarios, gauge.Table{}, 0, errMap), &gauge.Table{}, spec, errMap))
+			specs = append(specs, createSpec(copyScenarios(spec.Scenarios, gauge.Table{}, -1, errMap), &gauge.Table{}, spec, errMap))
 		}
 	}
 	return
@@ -74,20 +75,25 @@ func createSpec(scns []*gauge.Scenario, table *gauge.Table, spec *gauge.Specific
 }
 
 func copyScenarios(scenarios []*gauge.Scenario, table gauge.Table, i int, errMap *gauge.BuildErrors) (scns []*gauge.Scenario) {
-	var create = func(scn *gauge.Scenario, scnTableRow gauge.Table, scnTableRowIndex int) *gauge.Scenario {
+	var create = func(scn *gauge.Scenario, scnTableRow gauge.Table, scnTableRowIndex int, assignSpecTable bool) *gauge.Scenario {
 		newScn := &gauge.Scenario{
-			Steps:                 scn.Steps,
-			Items:                 scn.Items,
-			Heading:               scn.Heading,
-			SpecDataTableRow:      table,
-			SpecDataTableRowIndex: i,
-			Tags:                  scn.Tags,
-			Comments:              scn.Comments,
-			Span:                  scn.Span,
+			Steps:    scn.Steps,
+			Items:    scn.Items,
+			Heading:  scn.Heading,
+			Tags:     scn.Tags,
+			Comments: scn.Comments,
+			Span:     scn.Span,
+		}
+		// Both indices are -1 when the copy does not run for a row of that table. The spec
+		// table row is kept even if only the spec's context/teardown uses the spec table.
+		newScn.SpecDataTableRowIndex = i
+		newScn.ScenarioDataTableRowIndex = scnTableRowIndex
+		if assignSpecTable {
+			newScn.SpecDataTableRow = table
 		}
 		if scnTableRow.IsInitialized() {
 			newScn.ScenarioDataTableRow = scnTableRow
-			newScn.ScenarioDataTableRowIndex = scnTableRowIndex
+			newScn.DataTable = scn.DataTable
 		}
 		if len(errMap.ScenarioErrs[scn]) > 0 {
 			errMap.ScenarioErrs[newScn] = errMap.ScenarioErrs[scn]
@@ -95,13 +101,26 @@ func copyScenarios(scenarios []*gauge.Scenario, table gauge.Table, i int, errMap
 		return newScn
 	}
 	for _, scn := range scenarios {
-		if scn.DataTable.IsInitialized() && env.AllowScenarioDatatable() {
+		if scn.DataTable.IsInitialized() {
+			usesSpecParams := table.IsInitialized() && scn.UsesArgsInSteps(table.Headers...)
+			scenarioTableRows := scn.DataTable.Table.GetRowCount()
+
+			// Warn about nested tables with large datasets
+			if usesSpecParams && table.GetRowCount() > 0 {
+				specTableRows := table.GetRowCount()
+				totalIterations := specTableRows * scenarioTableRows
+				if totalIterations > 100 {
+					logger.Warningf(true, "Scenario '%s' has nested data tables (spec: %d rows × scenario: %d rows = %d total iterations). This may impact performance and memory usage.",
+						scn.Heading.Value, specTableRows, scenarioTableRows, totalIterations)
+				}
+			}
+
 			for i := range scn.DataTable.Table.Rows() {
 				t := getTableWithOneRow(scn.DataTable.Table, i)
-				scns = append(scns, create(scn, *t, i))
+				scns = append(scns, create(scn, *t, i, usesSpecParams))
 			}
 		} else {
-			scns = append(scns, create(scn, gauge.Table{}, 0))
+			scns = append(scns, create(scn, gauge.Table{}, -1, table.IsInitialized()))
 		}
 	}
 	return

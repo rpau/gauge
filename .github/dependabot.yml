@@ -1,11 +1,36 @@
 version: 2
 updates:
-- package-ecosystem: gomod
-  directory: "/"
-  schedule:
-    interval: daily
-  open-pull-requests-limit: 10
-  ignore:
-  - dependency-name: github.com/spf13/cobra
-    versions:
-    - 1.1.2
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: monthly
+    allow:
+      - dependency-type: all
+    groups:
+      go:
+        patterns:
+          - "*"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+  - package-ecosystem: npm
+    directory: "/build/npm"
+    schedule:
+      interval: monthly
+    groups:
+      build-npm:
+        patterns:
+          - "*"
+  - package-ecosystem: pip
+    directory: "build/pip"
+    schedule:
+      interval: monthly
+    groups:
+      build-python:
+        patterns:
+          - "*"

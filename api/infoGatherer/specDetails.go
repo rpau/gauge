@@ -7,7 +7,7 @@
 package infoGatherer
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -444,7 +444,9 @@ func (s *SpecInfoGatherer) watchForFileChanges() {
 	if err != nil {
 		logger.Errorf(false, "Error creating fileWatcher: %s", err)
 	}
-	defer watcher.Close()
+	defer func(watcher *fsnotify.Watcher) {
+		_ = watcher.Close()
+	}(watcher)
 
 	done := make(chan bool)
 	go func() {
@@ -606,7 +608,7 @@ func addDirToFileWatcher(watcher *fsnotify.Watcher, dir string) {
 		logger.Errorf(false, "Unable to add directory %v to file watcher: %s", dir, err.Error())
 	} else {
 		logger.Debugf(false, "Watching directory: %s", dir)
-		files, _ := ioutil.ReadDir(dir)
+		files, _ := os.ReadDir(dir)
 		logger.Debugf(false, "Found %d files", len(files))
 	}
 }

@@ -9,7 +9,6 @@
 package logger
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,13 +20,13 @@ import (
 
 func TestMain(m *testing.M) {
 	exitCode := m.Run()
-	os.RemoveAll(filepath.Join("_testdata", "logs"))
+	_ = os.RemoveAll(filepath.Join("_testdata", "logs"))
 	os.Exit(exitCode)
 }
 
 func TestLogWriterToOutputInfoLogInCorrectFormat(t *testing.T) {
 	defer tearDown(t)
-	setupLogger("info")
+	setupLogger()
 	l := newLogWriter("js")
 
 	if _, err := l.Stdout.Write([]byte("{\"logLevel\": \"info\", \"message\": \"Foo\"}\n")); err != nil {
@@ -39,7 +38,7 @@ func TestLogWriterToOutputInfoLogInCorrectFormat(t *testing.T) {
 
 func TestLogWriterToOutputInfoLogInCorrectFormatWhenNewLinesPresent(t *testing.T) {
 	defer tearDown(t)
-	setupLogger("info")
+	setupLogger()
 	l := newLogWriter("js")
 
 	if _, err := l.Stdout.Write([]byte("{\"logLevel\": \"info\", \"message\": \"Foo\"}\n\r\n{\"logLevel\": \"info\", \"message\": \"Bar\"}\n{\"logLevel\": \"info\", \"message\": \"Baz\"}")); err != nil {
@@ -52,7 +51,7 @@ func TestLogWriterToOutputInfoLogInCorrectFormatWhenNewLinesPresent(t *testing.T
 
 func TestLogWriterToOutputInfoLogWithMultipleLines(t *testing.T) {
 	defer tearDown(t)
-	setupLogger("debug")
+	setupLogger()
 	l := newLogWriter("js")
 
 	if _, err := l.Stdout.Write([]byte("{\"logLevel\": \"info\", \"message\": \"Foo\"}\n{\"logLevel\": \"debug\", \"message\": \"Bar\"}\n")); err != nil {
@@ -64,7 +63,7 @@ func TestLogWriterToOutputInfoLogWithMultipleLines(t *testing.T) {
 
 func TestLogWriterToLogPlainStrings(t *testing.T) {
 	defer tearDown(t)
-	setupLogger("debug")
+	setupLogger()
 	l := newLogWriter("js")
 
 	if _, err := l.Stdout.Write([]byte("Foo Bar\n")); err != nil {
@@ -76,7 +75,7 @@ func TestLogWriterToLogPlainStrings(t *testing.T) {
 
 func TestUnformattedLogWrittenToStderrShouldBePrefixedWithError(t *testing.T) {
 	defer tearDown(t)
-	setupLogger("debug")
+	setupLogger()
 	l := newLogWriter("js")
 
 	if _, err := l.Stderr.Write([]byte("Foo Bar\n")); err != nil {
@@ -88,7 +87,7 @@ func TestUnformattedLogWrittenToStderrShouldBePrefixedWithError(t *testing.T) {
 
 func TestUnformattedLogWrittenToStdoutShouldBePrefixedWithInfo(t *testing.T) {
 	defer tearDown(t)
-	setupLogger("debug")
+	setupLogger()
 	l := newLogWriter("js")
 
 	if _, err := l.Stdout.Write([]byte("Foo Bar\n")); err != nil {
@@ -100,7 +99,7 @@ func TestUnformattedLogWrittenToStdoutShouldBePrefixedWithInfo(t *testing.T) {
 
 func TestLoggingFromDifferentWritersAtSameTime(t *testing.T) {
 	defer tearDown(t)
-	setupLogger("info")
+	setupLogger()
 	j := newLogWriter("js")
 	h := newLogWriter("html-report")
 
@@ -154,7 +153,7 @@ func tearDown(t *testing.T) {
 
 }
 
-func setupLogger(level string) {
+func setupLogger() {
 	config.ProjectRoot, _ = filepath.Abs("_testdata")
 	Initialize(false, "info", CLI)
 }
@@ -168,7 +167,7 @@ func newLogWriter(loggerID string) *LogWriter {
 }
 
 func assertLogContains(t *testing.T, want []string) {
-	got, err := ioutil.ReadFile(ActiveLogFile)
+	got, err := os.ReadFile(ActiveLogFile)
 	if err != nil {
 		t.Fatalf("Unable to read log file. Error: %s", err.Error())
 	}
@@ -180,7 +179,7 @@ func assertLogContains(t *testing.T, want []string) {
 }
 
 func assertLogDoesNotContains(t *testing.T, want []string) {
-	got, err := ioutil.ReadFile(ActiveLogFile)
+	got, err := os.ReadFile(ActiveLogFile)
 	if err != nil {
 		t.Fatalf("Unable to read log file. Error: %s", err.Error())
 	}

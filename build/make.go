@@ -7,7 +7,6 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"log"
@@ -36,7 +35,6 @@ const (
 	bin               = "bin"
 	gauge             = "gauge"
 	deploy            = "deploy"
-	CC                = "CC"
 	nightlyDatelayout = "2006-01-02"
 )
 
@@ -58,7 +56,7 @@ func runProcess(command string, arg ...string) {
 func runCommand(command string, arg ...string) (string, error) {
 	cmd := exec.Command(command, arg...)
 	bytes, err := cmd.Output()
-	return strings.TrimSpace(fmt.Sprintf("%s", bytes)), err
+	return strings.TrimSpace(string(bytes)), err
 }
 
 var buildMetadata string
@@ -152,15 +150,15 @@ var certFile = flag.String("certFile", "", "Should be passed for signing the win
 // Each target name is the directory name
 var (
 	platformEnvs = []map[string]string{
-		map[string]string{GOARCH: ARM64, GOOS: darwin, CGO_ENABLED: "0"},
-		map[string]string{GOARCH: X86_64, GOOS: darwin, CGO_ENABLED: "0"},
-		map[string]string{GOARCH: X86, GOOS: linux, CGO_ENABLED: "0"},
-		map[string]string{GOARCH: X86_64, GOOS: linux, CGO_ENABLED: "0"},
-		map[string]string{GOARCH: ARM64, GOOS: linux, CGO_ENABLED: "0"},
-		map[string]string{GOARCH: X86, GOOS: freebsd, CGO_ENABLED: "0"},
-		map[string]string{GOARCH: X86_64, GOOS: freebsd, CGO_ENABLED: "0"},
-		map[string]string{GOARCH: X86, GOOS: windows, CC: "i586-mingw32-gcc", CGO_ENABLED: "1"},
-		map[string]string{GOARCH: X86_64, GOOS: windows, CC: "x86_64-w64-mingw32-gcc", CGO_ENABLED: "1"},
+		{GOARCH: ARM64, GOOS: darwin, CGO_ENABLED: "0"},
+		{GOARCH: X86_64, GOOS: darwin, CGO_ENABLED: "0"},
+		{GOARCH: X86, GOOS: linux, CGO_ENABLED: "0"},
+		{GOARCH: X86_64, GOOS: linux, CGO_ENABLED: "0"},
+		{GOARCH: ARM64, GOOS: linux, CGO_ENABLED: "0"},
+		{GOARCH: X86, GOOS: freebsd, CGO_ENABLED: "0"},
+		{GOARCH: X86_64, GOOS: freebsd, CGO_ENABLED: "0"},
+		{GOARCH: X86, GOOS: windows, CGO_ENABLED: "0"},
+		{GOARCH: X86_64, GOOS: windows, CGO_ENABLED: "0"},
 	}
 	osDistroMap = map[string]distroFunc{windows: createWindowsDistro, linux: createLinuxPackage, freebsd: createLinuxPackage, darwin: createDarwinPackage}
 )
@@ -195,7 +193,7 @@ func revParseHead() string {
 		return ""
 	}
 	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
-	var hash bytes.Buffer
+	var hash strings.Builder
 	cmd.Stdout = &hash
 	err := cmd.Run()
 	if err != nil {

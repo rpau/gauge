@@ -26,6 +26,7 @@ tags
 bin/
 deploy
 .idea
+*.iml
 *.ipr
 *.iws
 _workspace/
@@ -56,3 +57,4 @@ build/pip/setup.py
 .eggs
 
 coverage.out
+*.log

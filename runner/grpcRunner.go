@@ -15,14 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/getgauge/gauge-proto/go/gauge_messages"
 	gm "github.com/getgauge/gauge-proto/go/gauge_messages"
 	"github.com/getgauge/gauge/config"
 	"github.com/getgauge/gauge/logger"
 	"github.com/getgauge/gauge/manifest"
-	errdetails "google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -42,6 +42,7 @@ type GrpcRunner struct {
 	IsExecuting  bool
 }
 
+//nolint:staticcheck
 func (r *GrpcRunner) invokeLegacyLSPService(message *gm.Message) (*gm.Message, error) {
 	switch message.MessageType {
 	case gm.Message_CacheFileRequest:
@@ -146,14 +147,14 @@ func (r *GrpcRunner) invokeServiceFor(message *gm.Message) (*gm.Message, error) 
 		response, err := r.RunnerClient.ValidateStep(context.Background(), message.StepValidateRequest)
 		return &gm.Message{MessageType: gm.Message_StepValidateResponse, StepValidateResponse: response}, err
 	case gm.Message_KillProcessRequest:
-		_, err := r.RunnerClient.Kill(context.Background(), message.KillProcessRequest)
-		errStatus, _ := status.FromError(err)
-		if errStatus.Code() == codes.Canceled {
-			// Ref https://www.grpc.io/docs/guides/error/#general-errors
-			// GRPC_STATUS_UNAVAILABLE is thrown when Server is shutting down. Ignore it here.
-			return &gm.Message{}, nil
-		}
-		return &gm.Message{}, err
+		_, _ = r.RunnerClient.Kill(context.Background(), message.KillProcessRequest)
+		return nil, nil
+	case gm.Message_ConceptExecutionStarting:
+		response, err := r.RunnerClient.NotifyConceptExecutionStarting(context.Background(), message.ConceptExecutionStartingRequest)
+		return &gm.Message{MessageType: gm.Message_ExecutionStatusResponse, ExecutionStatusResponse: response}, err
+	case gm.Message_ConceptExecutionEnding:
+		response, err := r.RunnerClient.NotifyConceptExecutionEnding(context.Background(), message.ConceptExecutionEndingRequest)
+		return &gm.Message{MessageType: gm.Message_ExecutionStatusResponse, ExecutionStatusResponse: response}, err
 	default:
 		return nil, nil
 	}
@@ -198,7 +199,7 @@ func (r *GrpcRunner) ExecuteMessageWithTimeout(message *gm.Message) (*gm.Message
 // ExecuteAndGetStatus executes a given message and response without timeout.
 func (r *GrpcRunner) ExecuteAndGetStatus(m *gm.Message) *gm.ProtoExecutionResult {
 	if r.Info().Killed {
-		return &gauge_messages.ProtoExecutionResult{Failed: true,  ErrorMessage:"Runner is not Alive"}
+		return &gm.ProtoExecutionResult{Failed: true, ErrorMessage: "Runner is not Alive"}
 	}
 	res, err := r.executeMessage(m, 0)
 	if err != nil {
@@ -219,13 +220,17 @@ func (r *GrpcRunner) ExecuteAndGetStatus(m *gm.Message) *gm.ProtoExecutionResult
 			}
 			if e.Code() == codes.Unavailable {
 				r.Info().Killed = true
-				return &gauge_messages.ProtoExecutionResult{Failed: true, ErrorMessage: message, StackTrace: stackTrace}
+				return &gm.ProtoExecutionResult{Failed: true, ErrorMessage: message, StackTrace: stackTrace}
 			}
-			return &gauge_messages.ProtoExecutionResult{Failed: true, ErrorMessage: message, StackTrace: stackTrace}
+			return &gm.ProtoExecutionResult{Failed: true, ErrorMessage: message, StackTrace: stackTrace}
 		}
-		return &gauge_messages.ProtoExecutionResult{Failed: true, ErrorMessage: err.Error()}
+		return &gm.ProtoExecutionResult{Failed: true, ErrorMessage: err.Error()}
 	}
-	return res.ExecutionStatusResponse.ExecutionResult
+	if res != nil {
+		return res.ExecutionStatusResponse.ExecutionResult
+	} else {
+		return nil
+	}
 }
 
 // Alive check if the runner process is still alive
@@ -250,7 +255,9 @@ func (r *GrpcRunner) Kill() error {
 	if r.conn == nil && r.cmd == nil {
 		return nil
 	}
-	defer r.conn.Close()
+	defer func(conn *grpc.ClientConn) {
+		_ = conn.Close()
+	}(r.conn)
 	if r.Alive() {
 		exited := make(chan bool, 1)
 		go func() {
@@ -315,7 +322,7 @@ func StartGrpcRunner(m *manifest.Manifest, stdout, stderr io.Writer, timeout tim
 		err = cmd.Wait()
 		if err != nil {
 			e := fmt.Errorf("Error occurred while waiting for runner process to finish.\nError : %w", err)
-			logger.Errorf(true, e.Error())
+			logger.Error(true, e.Error())
 			errChan <- e
 		}
 		errChan <- nil
@@ -331,10 +338,9 @@ func StartGrpcRunner(m *manifest.Manifest, stdout, stderr io.Writer, timeout tim
 		return nil, fmt.Errorf("Timed out connecting to %s", m.Language)
 	}
 	logger.Debugf(true, "Attempting to connect to grpc server at port: %s", port)
-	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", host, port),
-		grpc.WithInsecure(),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(oneGB), grpc.MaxCallSendMsgSize(oneGB)),
-		grpc.WithBlock())
+	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", host, port),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(oneGB), grpc.MaxCallSendMsgSize(oneGB)))
 	logger.Debugf(true, "Successfully made the connection with runner with port: %s", port)
 	if err != nil {
 		return nil, err
